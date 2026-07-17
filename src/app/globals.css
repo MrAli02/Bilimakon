@@ -34,8 +34,8 @@
   --toast-border: rgba(255,255,255,0.08);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
-body { background: var(--bg); color: var(--text-primary); transition: background 0.2s, color 0.2s; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body { background: var(--bg); color: var(--text-primary); transition: background 0.2s, color 0.2s; overflow-x: hidden; }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

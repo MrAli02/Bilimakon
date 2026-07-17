@@ -4,7 +4,7 @@ import { BookOpen, Award, Users, ChevronRight, Star, Brain, Play, GraduationCap,
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen" style={{ background: "#fff" }}>
+    <div style={{ background: "#fff" }}>
       {/* NAVBAR */}
       <nav className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center px-4 sm:px-8"
         style={{ background:"rgba(255,255,255,0.9)", backdropFilter:"blur(16px)", borderBottom:"1px solid rgba(168,85,247,0.1)" }}>
@@ -44,7 +44,7 @@ export default function HomePage() {
       </nav>
 
       {/* HERO */}
-      <section className="min-h-screen pt-16 relative overflow-hidden flex items-center"
+      <section className="min-h-screen md:min-h-[100dvh] pt-16 relative overflow-hidden flex items-center"
         style={{ background:"linear-gradient(135deg,#fce7ff 0%,#f3e8ff 30%,#ede9fe 60%,#fdf2ff 100%)" }}>
         <div className="absolute top-20 left-10 w-80 h-80 rounded-full pointer-events-none"
           style={{ background:"radial-gradient(circle,rgba(168,85,247,0.14) 0%,transparent 70%)" }} />
