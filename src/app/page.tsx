@@ -60,7 +60,8 @@ export default function HomePage() {
                 style={{ background:"rgba(168,85,247,0.08)", color:"#7c3aed", border:"1px solid rgba(168,85,247,0.2)" }}>
                 <Sparkles size={14} /> O&apos;qish — kelajak sari eng yaxshi qadam!
               </div>
-              <h1 className="text-5xl sm:text-6xl font-extrabold leading-tight mb-5">
+              <h1 className="font-extrabold leading-tight mb-5"
+                style={{ fontSize: "clamp(2.25rem, 4vw + 1rem, 3.75rem)" }}>
                 <span style={{ background:"linear-gradient(90deg,#f97316,#ec4899)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Bilim oling</span>
                 <span style={{ color:"#1a1a2e" }}>, </span>
                 <span style={{ background:"linear-gradient(90deg,#a855f7,#ec4899)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>rivojlaning</span>
