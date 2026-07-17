@@ -28,21 +28,21 @@ VALUES (
 INSERT INTO modules (id, course_id, title, description, order_index, passing_score, is_published)
 VALUES
   (
-    'mod1-0000-0000-0000-000000000001',
+    '00000001-0000-0000-0000-000000000001',
     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     '1-Modul: Algoritmlar va Dasturlash Asoslari',
     'Algoritm tushunchasi, turlari, dasturlash tillari va asosiy tuzilmalar',
     1, 70, true
   ),
   (
-    'mod2-0000-0000-0000-000000000002',
+    '00000002-0000-0000-0000-000000000002',
     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     '2-Modul: Ma''lumotlar Tuzilmalari',
     'Massivlar, ro''yxatlar, stek, navbat, daraxt va graflar',
     2, 70, true
   ),
   (
-    'mod3-0000-0000-0000-000000000003',
+    '00000003-0000-0000-0000-000000000003',
     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     '3-Modul: Kompyuter Tarmoqlari',
     'Internet, protokollar, xavfsizlik asoslari',
@@ -56,35 +56,35 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO lessons (module_id, title, description, youtube_video_id, order_index, is_published)
 VALUES
   (
-    'mod1-0000-0000-0000-000000000001',
+    '00000001-0000-0000-0000-000000000001',
     'Algoritm nima?',
     'Algoritm tushunchasi, xossalari va turlari bilan tanishamiz',
     'dQw4w9WgXcQ',
     1, true
   ),
   (
-    'mod1-0000-0000-0000-000000000001',
+    '00000001-0000-0000-0000-000000000001',
     'Bloq-sxema va psevdokod',
     'Algoritmlarni tasvirlash usullari',
     'dQw4w9WgXcQ',
     2, true
   ),
   (
-    'mod1-0000-0000-0000-000000000001',
+    '00000001-0000-0000-0000-000000000001',
     'Dasturlash tillari tarixi',
     'Dasturlash tillari va ularning rivojlanishi',
     'dQw4w9WgXcQ',
     3, true
   ),
   (
-    'mod2-0000-0000-0000-000000000002',
+    '00000002-0000-0000-0000-000000000002',
     'Massivlar va ularning turlari',
     'Bir o''lchamli va ko''p o''lchamli massivlar',
     'dQw4w9WgXcQ',
     1, true
   ),
   (
-    'mod2-0000-0000-0000-000000000002',
+    '00000002-0000-0000-0000-000000000002',
     'Stek va Navbat',
     'LIFO va FIFO tuzilmalari',
     'dQw4w9WgXcQ',
