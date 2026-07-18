@@ -44,6 +44,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
 
@@ -54,19 +55,27 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     setQuizQuestions(shuffled);
     setCurrentQ(0);
     setAnswers({});
-    setSelectedOption(null);
+setSelectedOption(null);
+    setRevealed(false);
     setPhase("quiz");
   }
 
 function selectAnswer(optionId: string) {
+    if (revealed) return;
     setSelectedOption(optionId);
     setAnswers(prev => ({ ...prev, [quizQuestions[currentQ].id]: optionId }));
   }
 
-  function nextQuestion() {
+  function confirmAnswer() {
+    if (!selectedOption) return;
+    setRevealed(true);
+  }
+
+function nextQuestion() {
     if (currentQ < quizQuestions.length - 1) {
       setCurrentQ(currentQ + 1);
       setSelectedOption(null);
+      setRevealed(false);
     } else {
       finishQuiz();
     }
@@ -192,14 +201,14 @@ function selectAnswer(optionId: string) {
               {q.options.map((opt: { id: string; text: string }, idx: number) => {
                 const isSel = selectedOption === opt.id;
                 const isCorrect = opt.id === q.correct_option_id;
-                const showGreen = selectedOption && isCorrect;
-                const showRed = isSel && !isCorrect;
+const showGreen = revealed && isCorrect;
+                const showRed = revealed && isSel && !isCorrect;
                 return (
                   <button key={opt.id} onClick={() => selectAnswer(opt.id)} 
                     className="w-full text-left px-4 py-3.5 rounded-xl border-2 text-sm font-medium transition-all"
                     style={{
-                      borderColor: isSel ? "#a855f7" : "var(--border)",
-                      background: isSel ? "rgba(168,85,247,0.08)" : "var(--bg-secondary)",
+                      borderColor: showGreen ? "#10b981" : showRed ? "#ef4444" : isSel ? "#a855f7" : "var(--border)",
+                      background: showGreen ? "rgba(16,185,129,0.08)" : showRed ? "rgba(239,68,68,0.08)" : isSel ? "rgba(168,85,247,0.08)" : "var(--bg-secondary)",
                       color: "var(--text-primary)",
                     }}>
                     <span className="flex items-center gap-3">
@@ -219,7 +228,7 @@ function selectAnswer(optionId: string) {
               })}
             </div>
             {/* Static explanation — no AI */}
-            {selectedOption && answers[q.id] !== q.correct_option_id && q.explanation && (
+            {revealed && answers[q.id] !== q.correct_option_id && q.explanation && (
               <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
                 <p className="text-sm font-semibold text-yellow-600 mb-1">💡 Tushuntirish</p>
                 <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{q.explanation}</p>
@@ -227,7 +236,14 @@ function selectAnswer(optionId: string) {
             )}
           </div>
 
-          {selectedOption && (
+{selectedOption && !revealed && (
+            <div className="flex justify-end">
+              <button onClick={confirmAnswer} className="btn-primary">
+                Javobni tasdiqlash <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+          {revealed && (
             <div className="flex justify-end">
               <button onClick={nextQuestion} disabled={saving} className="btn-primary">
                 {saving && <Loader2 size={16} className="animate-spin" />}
