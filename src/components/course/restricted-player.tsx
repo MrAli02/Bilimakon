@@ -132,12 +132,12 @@ export default function RestrictedPlayer({ videoId, title }: Props) {
     if (muted) { p.unMute(); setMuted(false); } else { p.mute(); setMuted(true); }
   }, [muted]);
 
-  function seekTo(fraction: number) {
+function seekTo(fraction: number) {
     const p = playerRef.current;
     if (!p || !duration) return;
     const target = fraction * duration;
-    // Oldinga o'tkazib yuborishni cheklaymiz: faqat ilgari ko'rilgan joygacha ruxsat
-    const clamped = Math.min(target, maxWatchedRef.current + 2);
+    // Agar ilgari ko'rilmagan joyga bossa — aynan ko'rilgan joyning oxiriga qaytaradi
+    const clamped = target > maxWatchedRef.current ? maxWatchedRef.current : target;
     p.seekTo(clamped, true);
   }
 
