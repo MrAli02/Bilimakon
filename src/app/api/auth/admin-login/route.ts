@@ -27,10 +27,7 @@ export async function POST(req: NextRequest) {
       const newRate = checkRateLimit(id, true);
       return NextResponse.json({ error: "Email yoki parol noto'g'ri", remainingAttempts: newRate.remainingAttempts }, { status: 401 });
     }
-    const { data: profile, error: profileError } = await supabase.from("profiles").select("role, is_blocked, full_name").eq("id", data.user.id).single();
-    console.log("DEBUG userId:", data.user.id);
-    console.log("DEBUG profile:", JSON.stringify(profile));
-    console.log("DEBUG profileError:", JSON.stringify(profileError));
+    const { data: profile } = await supabase.from("profiles").select("role, is_blocked, full_name").eq("id", data.user.id).single();
     if (!profile || profile.role !== "admin") {
       recordFailedAttempt(id, true);
       await supabase.auth.signOut();
