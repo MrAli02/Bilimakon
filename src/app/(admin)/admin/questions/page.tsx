@@ -10,7 +10,7 @@ interface Option { id: string; text: string; }
 interface Question {
   id: string; text: string; options: Option[];
   correct_option_id: string; explanation?: string;
-  difficulty: string; subject: string; created_at: string;
+  difficulty: string; subject: string; created_at: string; lesson_id?: string;
 }
 
 const SUBJECTS = ["Informatika","Matematika","Fizika","Kimyo","Biologiya","Ona tili","Tarix","Ingliz tili"];
@@ -25,6 +25,7 @@ interface ExcelRow {
     subject: string; difficulty: string; explanation?: string; lesson_id?: string; error?: string;
   }
   const [showExcelModal, setShowExcelModal] = useState(false);
+  const [editQuestion, setEditQuestion] = useState<Question | null>(null);
   const [excelPreview, setExcelPreview] = useState<ExcelRow[]>([]);
   const [excelUploading, setExcelUploading] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
@@ -78,22 +79,38 @@ useEffect(() => { fetchLessons(); }, [fetchLessons]);
     const filled = form.options.filter(o => o.text.trim());
     if (filled.length < 2) { toast.error("Kamida 2 ta variant kiriting"); return; }
     if (!form.correct_option_id) { toast.error("To'g'ri javobni belgilang (✓)"); return; }
-    setSaving(true);
+setSaving(true);
     try {
-const { error } = await supabase.from("questions").insert({
+      const payload = {
         text: form.text, subject: form.subject, difficulty: form.difficulty,
         explanation: form.explanation || null,
         lesson_id: form.lesson_id || null,
         options: form.options.filter(o => o.text.trim()),
         correct_option_id: form.correct_option_id,
-      });
-      if (error) throw error;
-      toast.success("Savol qo'shildi!");
+      };
+      if (editQuestion) {
+        const { error } = await supabase.from("questions").update(payload).eq("id", editQuestion.id);
+        if (error) throw error;
+        toast.success("Savol yangilandi!");
+      } else {
+        const { error } = await supabase.from("questions").insert(payload);
+        if (error) throw error;
+        toast.success("Savol qo'shildi!");
+      }
       resetForm(); fetchQuestions();
     } catch (e: any) { toast.error(e.message ?? "Xatolik"); }
     finally { setSaving(false); }
   }
-
+function startEditQuestion(q: Question) {
+    setEditQuestion(q);
+    setForm({
+      text: q.text, subject: q.subject, difficulty: q.difficulty,
+      explanation: q.explanation ?? "", lesson_id: (q as any).lesson_id ?? "",
+      options: q.options.length >= 4 ? q.options : [...q.options, ...Array(4 - q.options.length).fill(0).map(() => ({ id: makeId(), text: "" }))],
+      correct_option_id: q.correct_option_id,
+    });
+    setShowForm(true);
+  }
   async function deleteQuestion(id: string) {
     if (!confirm("Savolni o'chirasizmi?")) return;
     await supabase.from("questions").delete().eq("id", id);
@@ -101,6 +118,7 @@ const { error } = await supabase.from("questions").insert({
   }
 function resetForm() {
     setShowForm(false);
+    setEditQuestion(null);
     setForm({
       text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "",
       options: [{ id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }],
@@ -311,10 +329,18 @@ function resetForm() {
                       </span>
                     </div>
                   </div>
-                  <button onClick={() => deleteQuestion(q.id)}
-                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 text-red-500 flex-shrink-0 transition-colors">
-                    <Trash2 size={15} />
-                  </button>
+<div className="flex gap-1 flex-shrink-0">
+                    <button onClick={() => startEditQuestion(q)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
+                      style={{ color: "var(--text-secondary)" }}>
+                      <FileSpreadsheet size={15} style={{ display: "none" }} />
+                      ✏️
+                    </button>
+                    <button onClick={() => deleteQuestion(q.id)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 text-red-500 transition-colors">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -392,7 +418,7 @@ function resetForm() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.6)" }}>
           <div className="w-full max-w-2xl rounded-2xl p-6 shadow-xl my-8" style={{ background: "var(--surface)" }}>
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Yangi savol</h2>
+              <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>{editQuestion ? "Savolni tahrirlash" : "Yangi savol"}</h2>
               <button onClick={resetForm} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-secondary)]"
                 style={{ color: "var(--text-secondary)" }}><X size={18} /></button>
             </div>
