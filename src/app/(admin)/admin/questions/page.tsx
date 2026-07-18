@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, HelpCircle, Trash2, Loader2, X, Check, Search } from "lucide-react";
+import { Plus, HelpCircle, Trash2, Loader2, X, Check, Search, Upload, Download, FileSpreadsheet, AlertCircle } from "lucide-react";
+import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
@@ -17,13 +18,23 @@ function makeId() { return Math.random().toString(36).slice(2,8); }
 
 export default function AdminQuestionsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
+  interface LessonOption { id: string; title: string; module_title: string; course_title: string; }
+const [lessons, setLessons] = useState<LessonOption[]>([]);
+interface ExcelRow {
+    row: number; text: string; options: Option[]; correct_option_id: string;
+    subject: string; difficulty: string; explanation?: string; lesson_id?: string; error?: string;
+  }
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelPreview, setExcelPreview] = useState<ExcelRow[]>([]);
+  const [excelUploading, setExcelUploading] = useState(false);
+  const [excelFileName, setExcelFileName] = useState("");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ subject: "", difficulty: "" });
-  const [form, setForm] = useState({
-    text: "", subject: "Informatika", difficulty: "medium", explanation: "",
+const [form, setForm] = useState({
+    text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "",
     options: [
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
@@ -41,8 +52,22 @@ export default function AdminQuestionsPage() {
     setQuestions(data ?? []);
     setLoading(false);
   }, [filter, supabase]);
+  const fetchLessons = useCallback(async () => {
+    const { data } = await supabase
+      .from("lessons")
+      .select("id, title, modules(title, courses(title))")
+      .order("order_index");
+    const formatted = (data ?? []).map((l: any) => ({
+      id: l.id,
+      title: l.title,
+      module_title: l.modules?.title ?? "",
+      course_title: l.modules?.courses?.title ?? "",
+    }));
+    setLessons(formatted);
+  }, [supabase]);
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
+useEffect(() => { fetchLessons(); }, [fetchLessons]);
 
   const filtered = questions.filter(q =>
     !search || q.text.toLowerCase().includes(search.toLowerCase())
@@ -55,9 +80,10 @@ export default function AdminQuestionsPage() {
     if (!form.correct_option_id) { toast.error("To'g'ri javobni belgilang (✓)"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase.from("questions").insert({
+const { error } = await supabase.from("questions").insert({
         text: form.text, subject: form.subject, difficulty: form.difficulty,
         explanation: form.explanation || null,
+        lesson_id: form.lesson_id || null,
         options: form.options.filter(o => o.text.trim()),
         correct_option_id: form.correct_option_id,
       });
@@ -73,16 +99,113 @@ export default function AdminQuestionsPage() {
     await supabase.from("questions").delete().eq("id", id);
     toast.success("O'chirildi"); fetchQuestions();
   }
-
-  function resetForm() {
+function resetForm() {
     setShowForm(false);
     setForm({
-      text: "", subject: "Informatika", difficulty: "medium", explanation: "",
+      text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "",
       options: [{ id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }],
       correct_option_id: "",
     });
   }
+  function downloadTemplate() {
+    const wsData = [
+      ["Fan", "Kurs", "Modul", "Dars", "Savol", "A", "B", "C", "D", "Togri_javob", "Daraja", "Tushuntirish"],
+      ["Informatika", "", "", "", "Algoritm nima?", "Dastur", "Buyruqlar ketma-ketligi", "Dastur tili", "Kompyuter", "B", "orta", "Algoritm - masalani yechish uchun buyruqlar ketma-ketligi"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Savollar");
+    XLSX.writeFile(wb, "savollar_shablon.xlsx");
+  }
 
+  function handleExcelFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExcelFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = evt.target?.result;
+      const wb = XLSX.read(data, { type: "binary" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const parsed: ExcelRow[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0 || !r[4]) continue;
+        const rowNum = i + 1;
+        const subject = String(r[0] ?? "").trim();
+        const courseTitle = String(r[1] ?? "").trim();
+        const moduleTitle = String(r[2] ?? "").trim();
+        const lessonTitle = String(r[3] ?? "").trim();
+        const text = String(r[4] ?? "").trim();
+        const optA = String(r[5] ?? "").trim();
+        const optB = String(r[6] ?? "").trim();
+        const optC = String(r[7] ?? "").trim();
+        const optD = String(r[8] ?? "").trim();
+        const correctLetter = String(r[9] ?? "").trim().toUpperCase();
+        const difficultyRaw = String(r[10] ?? "orta").trim().toLowerCase();
+        const explanation = String(r[11] ?? "").trim();
+
+        let error = "";
+        if (!subject || !SUBJECTS.includes(subject)) error = `Fan noto'g'ri yoki bo'sh (${subject})`;
+        else if (!text) error = "Savol matni bo'sh";
+        else if (!optA || !optB) error = "A va B variantlar majburiy";
+        else if (!["A", "B", "C", "D"].includes(correctLetter)) error = "To'g'ri javob A/B/C/D bo'lishi kerak";
+
+        const options: Option[] = [];
+        const ids: Record<string, string> = { A: makeId(), B: makeId(), C: makeId(), D: makeId() };
+        if (optA) options.push({ id: ids.A, text: optA });
+        if (optB) options.push({ id: ids.B, text: optB });
+        if (optC) options.push({ id: ids.C, text: optC });
+        if (optD) options.push({ id: ids.D, text: optD });
+
+        if (!error && correctLetter && !ids[correctLetter]) error = "To'g'ri javob harfi noto'g'ri";
+
+        let lesson_id: string | undefined;
+        if (!error && lessonTitle) {
+          const match = lessons.find(l =>
+            l.title.trim().toLowerCase() === lessonTitle.toLowerCase() &&
+            (!moduleTitle || l.module_title.toLowerCase() === moduleTitle.toLowerCase()) &&
+            (!courseTitle || l.course_title.toLowerCase() === courseTitle.toLowerCase())
+          );
+          if (match) lesson_id = match.id;
+        }
+
+        const difficulty = difficultyRaw === "oson" ? "easy" : difficultyRaw === "qiyin" ? "hard" : "medium";
+
+        parsed.push({
+          row: rowNum, text, options,
+          correct_option_id: !error ? ids[correctLetter] : "",
+          subject, difficulty, explanation: explanation || undefined,
+          lesson_id, error: error || undefined,
+        });
+      }
+      setExcelPreview(parsed);
+    };
+    reader.readAsBinaryString(file);
+  }
+
+  async function confirmExcelUpload() {
+    const validRows = excelPreview.filter(r => !r.error);
+    if (validRows.length === 0) { toast.error("Yuklash uchun to'g'ri qator yo'q"); return; }
+    setExcelUploading(true);
+    try {
+      const inserts = validRows.map(r => ({
+        text: r.text, subject: r.subject, difficulty: r.difficulty,
+        explanation: r.explanation || null, lesson_id: r.lesson_id || null,
+        options: r.options, correct_option_id: r.correct_option_id,
+      }));
+      const { error } = await supabase.from("questions").insert(inserts);
+      if (error) throw error;
+      toast.success(`${validRows.length} ta savol yuklandi!`);
+      setShowExcelModal(false); setExcelPreview([]); setExcelFileName("");
+      fetchQuestions();
+    } catch (e: any) {
+      toast.error(e.message ?? "Xatolik");
+    } finally {
+      setExcelUploading(false);
+    }
+  }
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-8">
@@ -90,9 +213,17 @@ export default function AdminQuestionsPage() {
           <h1 className="text-3xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Savollar banki</h1>
           <p style={{ color: "var(--text-secondary)" }}>Test va imtihon savollari</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary">
-          <Plus size={18} /> Savol qo&apos;shish
-        </button>
+        <div className="flex gap-2">
+          <button onClick={downloadTemplate} className="btn-secondary text-sm">
+            <Download size={16} /> Shablon
+          </button>
+          <button onClick={() => setShowExcelModal(true)} className="btn-secondary text-sm">
+            <Upload size={16} /> Excel yuklash
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn-primary">
+            <Plus size={18} /> Savol qo&apos;shish
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -190,6 +321,71 @@ export default function AdminQuestionsPage() {
           </div>
         )}
       </div>
+{/* EXCEL UPLOAD MODAL */}
+      {showExcelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="w-full max-w-3xl rounded-2xl p-6 shadow-xl my-8" style={{ background: "var(--surface)" }}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Excel orqali savol yuklash</h2>
+              <button onClick={() => { setShowExcelModal(false); setExcelPreview([]); setExcelFileName(""); }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-secondary)]"
+                style={{ color: "var(--text-secondary)" }}><X size={18} /></button>
+            </div>
+
+            {excelPreview.length === 0 ? (
+              <div className="text-center py-10 rounded-xl" style={{ border: "1.5px dashed var(--border)", background: "var(--bg-secondary)" }}>
+                <FileSpreadsheet size={40} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
+                <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                  Avval shablonni yuklab oling, to&apos;ldiring, so&apos;ng shu yerga yuklang
+                </p>
+                <label className="btn-primary inline-flex cursor-pointer">
+                  <Upload size={16} /> Excel faylni tanlash
+                  <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelFile} />
+                </label>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {excelFileName} — {excelPreview.length} qator topildi
+                  </p>
+                  <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                    {excelPreview.filter(r => !r.error).length} to&apos;g&apos;ri · {excelPreview.filter(r => r.error).length} xato
+                  </span>
+                </div>
+                <div className="max-h-80 overflow-y-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
+                  {excelPreview.map((r, i) => (
+                    <div key={i} className="p-3 text-xs flex items-start gap-2"
+                      style={{ borderBottom: i < excelPreview.length - 1 ? "1px solid var(--border)" : "none",
+                        background: r.error ? "rgba(239,68,68,0.05)" : "transparent" }}>
+                      <span className="font-bold flex-shrink-0" style={{ color: "var(--text-tertiary)" }}>#{r.row}</span>
+                      {r.error ? (
+                        <span className="flex items-center gap-1 text-red-500">
+                          <AlertCircle size={13} /> {r.error}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--text-secondary)" }}>
+                          <strong style={{ color: "var(--text-primary)" }}>{r.text}</strong> — {r.subject}
+                          {r.lesson_id && " · darsga bog'landi"}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-5">
+                  <button onClick={confirmExcelUpload} disabled={excelUploading} className="btn-primary flex-1">
+                    {excelUploading && <Loader2 size={16} className="animate-spin" />}
+                    {excelPreview.filter(r => !r.error).length} ta savolni yuklash
+                  </button>
+                  <button onClick={() => { setExcelPreview([]); setExcelFileName(""); }} className="btn-secondary flex-1">
+                    Qayta tanlash
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* FORM MODAL */}
       {showForm && (
@@ -212,6 +408,19 @@ export default function AdminQuestionsPage() {
                   <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Fan</label>
                   <select className="input" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })}>
                     {SUBJECTS.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>  
+                  <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                    Dars <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(ixtiyoriy)</span>
+                  </label>
+                  <select className="input" value={form.lesson_id} onChange={e => setForm({ ...form, lesson_id: e.target.value })}>
+                    <option value="">— Umumiy (fan bo'yicha) —</option>
+                    {lessons.map(l => (
+                      <option key={l.id} value={l.id}>
+                        {l.course_title} / {l.module_title} / {l.title}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
