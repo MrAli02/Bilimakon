@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Loader2, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import RestrictedPlayer from "./restricted-player";
 import { shuffleArray } from "@/lib/utils";
 import toast from "react-hot-toast";
 import type { Question } from "@/types";
@@ -130,15 +131,9 @@ function nextQuestion() {
       {phase === "video" && (
         <div>
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
-          {lesson.youtube_video_id ? (
-            <div className="relative rounded-2xl overflow-hidden mb-5" style={{ aspectRatio: "16/9", background: "#000" }}>
-              <iframe
-                src={`https://www.youtube-nocookie.com/embed/${lesson.youtube_video_id}?rel=0&modestbranding=1`}
-                title={lesson.title}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+{lesson.youtube_video_id ? (
+            <div className="relative mb-5">
+              <RestrictedPlayer videoId={lesson.youtube_video_id} title={lesson.title} />
               {/* Watermark */}
               <div className="video-watermark" style={{ position: "absolute", pointerEvents: "none", userSelect: "none" }}>
                 {profile?.full_name} · {profile?.id?.slice(0, 8)}
