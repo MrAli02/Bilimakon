@@ -38,6 +38,7 @@ export default function AdminCourseModulesPage() {
 
   // Lesson form
   const [showLessonForm, setShowLessonForm] = useState<string | null>(null); // moduleId
+  const [previewLesson, setPreviewLesson] = useState<Lesson | null>(null);
   const [editLesson, setEditLesson] = useState<Lesson | null>(null);
   const [savingLesson, setSavingLesson] = useState(false);
   const [lForm, setLForm] = useState({ title: "", description: "", youtube_video_id: "", duration_seconds: "", order_index: 1 });
@@ -299,6 +300,32 @@ export default function AdminCourseModulesPage() {
           </div>
         </div>
       )}
+      {previewLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.8)" }}
+          onClick={() => setPreviewLesson(null)}>
+          <div className="w-full max-w-2xl rounded-2xl overflow-hidden shadow-xl" style={{ background: "var(--surface)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "var(--border)" }}>
+              <h2 className="font-bold" style={{ color: "var(--text-primary)" }}>{previewLesson.title}</h2>
+              <button onClick={() => setPreviewLesson(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-secondary)]"
+                style={{ color: "var(--text-secondary)" }}><X size={18} /></button>
+            </div>
+            {previewLesson.youtube_video_id ? (
+              <div style={{ aspectRatio: "16/9" }}>
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${previewLesson.youtube_video_id}`}
+                  className="w-full h-full" allowFullScreen title={previewLesson.title} />
+              </div>
+            ) : (
+              <div className="p-12 text-center">
+                <Youtube size={32} className="mx-auto mb-2" style={{ color: "var(--text-tertiary)" }} />
+                <p style={{ color: "var(--text-secondary)" }}>Bu darsga video qo&apos;shilmagan</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── MODULES LIST ── */}
       {loading ? (
@@ -386,7 +413,7 @@ export default function AdminCourseModulesPage() {
                   ) : (
                     <div className="divide-y" style={{ borderColor: "var(--border)" }}>
                       {mod.lessons?.map((lesson) => (
-                        <div key={lesson.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors">
+                        <div key={lesson.id} onClick={() => setPreviewLesson(lesson)} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer">
                           <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
                             style={{ background: "rgba(168,85,247,0.1)", color: "#a855f7" }}>
                             {lesson.order_index}
@@ -410,17 +437,17 @@ export default function AdminCourseModulesPage() {
                             {lesson.is_published ? "Nashr" : "Yashirin"}
                           </span>
                           <div className="flex gap-1 flex-shrink-0">
-                            <button onClick={() => toggleLessonPublish(lesson)}
+                            <button onClick={(e) => { e.stopPropagation(); toggleLessonPublish(lesson); }}
                               className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
                               style={{ color: "var(--text-secondary)" }}>
                               {lesson.is_published ? <EyeOff size={13} /> : <Eye size={13} />}
                             </button>
-                            <button onClick={() => startEditLesson(lesson, mod.id)}
+                            <button onClick={(e) => { e.stopPropagation(); startEditLesson(lesson, mod.id); }}
                               className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
                               style={{ color: "var(--text-secondary)" }}>
                               <Edit2 size={13} />
                             </button>
-                            <button onClick={() => deleteLesson(lesson.id)}
+                            <button onClick={(e) => { e.stopPropagation(); deleteLesson(lesson.id); }}
                               className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 text-red-500 transition-colors">
                               <Trash2 size={13} />
                             </button>
