@@ -58,8 +58,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     setPhase("quiz");
   }
 
-  function selectAnswer(optionId: string) {
-    if (selectedOption) return;
+function selectAnswer(optionId: string) {
     setSelectedOption(optionId);
     setAnswers(prev => ({ ...prev, [quizQuestions[currentQ].id]: optionId }));
   }
@@ -196,11 +195,11 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
                 const showGreen = selectedOption && isCorrect;
                 const showRed = isSel && !isCorrect;
                 return (
-                  <button key={opt.id} onClick={() => selectAnswer(opt.id)} disabled={!!selectedOption}
+                  <button key={opt.id} onClick={() => selectAnswer(opt.id)} 
                     className="w-full text-left px-4 py-3.5 rounded-xl border-2 text-sm font-medium transition-all"
                     style={{
-                      borderColor: showGreen ? "#10b981" : showRed ? "#ef4444" : isSel ? "#a855f7" : "var(--border)",
-                      background: showGreen ? "rgba(16,185,129,0.08)" : showRed ? "rgba(239,68,68,0.08)" : isSel ? "rgba(168,85,247,0.08)" : "var(--bg-secondary)",
+                      borderColor: isSel ? "#a855f7" : "var(--border)",
+                      background: isSel ? "rgba(168,85,247,0.08)" : "var(--bg-secondary)",
                       color: "var(--text-primary)",
                     }}>
                     <span className="flex items-center gap-3">
