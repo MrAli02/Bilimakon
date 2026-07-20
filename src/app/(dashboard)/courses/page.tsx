@@ -41,8 +41,8 @@ export default async function CoursesPage() {
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: "rgba(168,85,247,0.1)" }}>
-                      <BookOpen size={22} style={{ color: "#a855f7" }} />
+                      style={{ background: "linear-gradient(135deg,#a855f7,#7c3aed)", boxShadow: "0 4px 12px rgba(124,58,237,0.25)" }}>
+                      <BookOpen size={22} className="text-white" />
                     </div>
                     <div className="flex gap-2">
                       <span className="badge-blue text-xs">{course.subject ?? "Informatika"}</span>
