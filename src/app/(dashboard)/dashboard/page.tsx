@@ -44,8 +44,9 @@ export default async function DashboardPage() {
           { label: "Test urinishlari", value: attempts?.length ?? 0, icon: ClipboardList, color: "rgba(245,158,11,0.1)", ic: "#f59e0b" },
         ].map(s => (
           <div key={s.label} className="card p-4">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: s.color }}>
-              <s.icon size={18} style={{ color: s.ic }} />
+<div className="w-11 h-11 rounded-xl flex items-center justify-center mb-3"
+              style={{ background: `linear-gradient(135deg, ${s.color}, transparent)`, boxShadow: `0 2px 8px ${s.color}` }}>
+              <s.icon size={20} style={{ color: s.ic }} />
             </div>
             <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{s.value}</div>
             <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{s.label}</div>
