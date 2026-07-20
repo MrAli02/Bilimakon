@@ -39,9 +39,9 @@ export default async function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Kurslar", value: enrollments?.length ?? 0, icon: BookOpen, color: "rgba(168,85,247,0.1)", ic: "#a855f7" },
-          { label: "Tugatilgan darslar", value: progress?.length ?? 0, icon: Play, color: "rgba(16,185,129,0.1)", ic: "#10b981" },
-          { label: "Test urinishlari", value: attempts?.length ?? 0, icon: ClipboardList, color: "rgba(245,158,11,0.1)", ic: "#f59e0b" },
+          { label: "Kurslar", value: enrollments?.length ?? 0, icon: BookOpen, color: "rgba(168,85,247,0.18)", ic: "#a855f7" },
+          { label: "Tugatilgan darslar", value: progress?.length ?? 0, icon: Play, color: "rgba(16,185,129,0.18)", ic: "#10b981" },
+          { label: "Test urinishlari", value: attempts?.length ?? 0, icon: ClipboardList, color: "rgba(245,158,11,0.18)", ic: "#f59e0b" },
         ].map(s => (
           <div key={s.label} className="card p-4">
 <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-3"
