@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { BookOpen, Award, Users, ChevronRight, Star, Brain, Play, GraduationCap, Sparkles, ClipboardList } from "lucide-react";
+import { BookOpen, Award, Users, ChevronRight, Star, Brain, Play, GraduationCap, Sparkles, ClipboardList, Code, BarChart3 } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -70,7 +70,7 @@ export default function HomePage() {
               </h1>
               <p className="text-base mb-8 leading-relaxed" style={{ color:"#6b6b8f" }}>
                 <span className="font-bold" style={{ color:"#a855f7" }}>BilimMakon</span> — zamonaviy ta&apos;lim platformasi.
-                Video darslar, AI Mentor, attestatsiya simulyatori va boshqa imkoniyatlar siz uchun!
+                Video darslar, attestatsiya simulyatori va boshqa imkoniyatlar siz uchun!
               </p>
               <div className="flex flex-wrap gap-3 mb-8">
                 <Link href="/register"
@@ -109,13 +109,21 @@ export default function HomePage() {
 
             {/* Hero image */}
             <div className="order-1 lg:order-2 relative flex items-end justify-center lg:justify-end">
-              <div className="absolute top-12 right-4 rounded-2xl flex items-center justify-center shadow-lg z-10"
+              <div className="absolute top-12 right-4 rounded-2xl flex items-center justify-center shadow-lg z-10 scale-75 sm:scale-100"
                 style={{ background:"white", padding:"10px", animation:"float 6s ease-in-out infinite" }}>
                 <GraduationCap size={24} style={{ color:"#a855f7" }} />
               </div>
-              <div className="absolute bottom-1/4 right-2 rounded-2xl flex items-center justify-center shadow-lg z-10"
+              <div className="absolute bottom-1/4 right-2 rounded-2xl flex items-center justify-center shadow-lg z-10 scale-75 sm:scale-100"
                 style={{ background:"white", padding:"10px", animation:"float 6s ease-in-out infinite 2.4s" }}>
                 <Star size={24} className="fill-yellow-400 text-yellow-400" />
+              </div>
+              <div className="absolute top-8 left-2 sm:left-6 rounded-2xl flex items-center justify-center shadow-lg z-10 scale-75 sm:scale-100"
+                style={{ background:"white", padding:"10px", animation:"float 6s ease-in-out infinite 1.2s" }}>
+                <Code size={24} style={{ color:"#3b82f6" }} />
+              </div>
+              <div className="absolute bottom-8 left-2 sm:left-6 rounded-2xl flex items-center justify-center shadow-lg z-10 scale-75 sm:scale-100"
+                style={{ background:"white", padding:"10px", animation:"float 6s ease-in-out infinite 3.6s" }}>
+                <BarChart3 size={24} style={{ color:"#ec4899" }} />
               </div>
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full"
                 style={{ background:"radial-gradient(circle,rgba(168,85,247,0.22) 0%,transparent 70%)" }} />
