@@ -20,6 +20,8 @@ export default function AdminQuestionsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   interface LessonOption { id: string; title: string; module_title: string; course_title: string; }
 const [lessons, setLessons] = useState<LessonOption[]>([]);
+interface ModuleOption { id: string; title: string; course_title: string; }
+const [modules, setModules] = useState<ModuleOption[]>([]);
 interface ExcelRow {
     row: number; text: string; options: Option[]; correct_option_id: string;
     subject: string; difficulty: string; explanation?: string; lesson_id?: string; error?: string;
@@ -35,8 +37,7 @@ interface ExcelRow {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ subject: "", difficulty: "" });
 const [form, setForm] = useState({
-    text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "",
-    options: [
+text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",    options: [
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
     ],
@@ -66,9 +67,21 @@ const [form, setForm] = useState({
     }));
     setLessons(formatted);
   }, [supabase]);
-
+const fetchModules = useCallback(async () => {
+    const { data } = await supabase
+      .from("modules")
+      .select("id, title, courses(title)")
+      .order("order_index");
+    const formatted = (data ?? []).map((m: any) => ({
+      id: m.id,
+      title: m.title,
+      course_title: m.courses?.title ?? "",
+    }));
+    setModules(formatted);
+  }, [supabase]);
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 useEffect(() => { fetchLessons(); }, [fetchLessons]);
+useEffect(() => { fetchModules(); }, [fetchModules]);
 
   const filtered = questions.filter(q =>
     !search || q.text.toLowerCase().includes(search.toLowerCase())
@@ -85,6 +98,7 @@ setSaving(true);
         text: form.text, subject: form.subject, difficulty: form.difficulty,
         explanation: form.explanation || null,
         lesson_id: form.lesson_id || null,
+        module_id: form.module_id || null,
         options: form.options.filter(o => o.text.trim()),
         correct_option_id: form.correct_option_id,
       };
@@ -105,7 +119,7 @@ function startEditQuestion(q: Question) {
     setEditQuestion(q);
     setForm({
       text: q.text, subject: q.subject, difficulty: q.difficulty,
-      explanation: q.explanation ?? "", lesson_id: (q as any).lesson_id ?? "",
+      explanation: q.explanation ?? "", lesson_id: (q as any).lesson_id ?? "", module_id: (q as any).module_id ?? "",
       options: q.options.length >= 4 ? q.options : [...q.options, ...Array(4 - q.options.length).fill(0).map(() => ({ id: makeId(), text: "" }))],
       correct_option_id: q.correct_option_id,
     });
@@ -120,7 +134,7 @@ function resetForm() {
     setShowForm(false);
     setEditQuestion(null);
     setForm({
-      text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "",
+      text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",
       options: [{ id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }],
       correct_option_id: "",
     });
@@ -445,6 +459,19 @@ function resetForm() {
                     {lessons.map(l => (
                       <option key={l.id} value={l.id}>
                         {l.course_title} / {l.module_title} / {l.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                    Modul yakuniy imtihoni uchun <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(ixtiyoriy)</span>
+                  </label>
+                  <select className="input" value={form.module_id} onChange={e => setForm({ ...form, module_id: e.target.value })}>
+                    <option value="">— Yo'q —</option>
+                    {modules.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.course_title} / {m.title}
                       </option>
                     ))}
                   </select>
