@@ -24,7 +24,6 @@ export default function HomePage() {
               { label:"Bosh Sahifa", href:"/" },
               { label:"Video Darslar", href:"/courses" },
               { label:"Testlar", href:"/tests" },
-              { label:"AI Mentor", href:"/ai-mentor" },
             ].map(item => (
               <Link key={item.href} href={item.href}
                 className="px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:bg-purple-50"
@@ -142,7 +141,6 @@ export default function HomePage() {
             {[
               { icon:BookOpen, title:"Video Darslar", desc:"Professional video darslar va materiallar bilan to'liq kurs.", bg:"rgba(168,85,247,0.1)", ic:"#a855f7" },
               { icon:ClipboardList, title:"Testlar", desc:"Modul imtihonlari va haqiqiy attestatsiya simulyatori.", bg:"rgba(59,130,246,0.1)", ic:"#3b82f6" },
-              { icon:Brain, title:"AI Mentor", desc:"Informatika bo'yicha shaxsiy AI-o'qituvchi. 10 ta savol/kun.", bg:"rgba(236,72,153,0.1)", ic:"#ec4899" },
               { icon:Award, title:"Progress", desc:"O'rganish jarayoningizni kuzating va natijalaringizni ko'ring.", bg:"rgba(245,158,11,0.1)", ic:"#f59e0b" },
             ].map((f,i) => (
               <div key={i} className="rounded-2xl p-6 transition-all hover:scale-105"

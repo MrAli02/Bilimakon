@@ -13,7 +13,6 @@ const NAV = [
   { href: "/courses",    label: "Kurslar",     icon: BookOpen },
   { href: "/tests",      label: "Testlar",     icon: ClipboardList },
   { href: "/progress",   label: "Progress",    icon: TrendingUp },
-  { href: "/ai-mentor",  label: "AI Mentor",   icon: Brain },
   { href: "/profile",    label: "Profil",      icon: User },
 ];
 
