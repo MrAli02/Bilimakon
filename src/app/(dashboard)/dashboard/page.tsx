@@ -39,14 +39,14 @@ export default async function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Kurslar", value: enrollments?.length ?? 0, icon: BookOpen, color: "rgba(168,85,247,0.18)", ic: "#a855f7" },
-          { label: "Tugatilgan darslar", value: progress?.length ?? 0, icon: Play, color: "rgba(16,185,129,0.18)", ic: "#10b981" },
-          { label: "Test urinishlari", value: attempts?.length ?? 0, icon: ClipboardList, color: "rgba(245,158,11,0.18)", ic: "#f59e0b" },
+          { label: "Kurslar", value: enrollments?.length ?? 0, icon: BookOpen, grad: "linear-gradient(135deg,#a855f7,#7c3aed)" },
+          { label: "Tugatilgan darslar", value: progress?.length ?? 0, icon: Play, grad: "linear-gradient(135deg,#10b981,#059669)" },
+          { label: "Test urinishlari", value: attempts?.length ?? 0, icon: ClipboardList, grad: "linear-gradient(135deg,#f59e0b,#d97706)" },
         ].map(s => (
           <div key={s.label} className="card p-4">
 <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-3"
-              style={{ background: `linear-gradient(135deg, ${s.color}, transparent)`, boxShadow: `0 2px 8px ${s.color}` }}>
-              <s.icon size={20} style={{ color: s.ic }} />
+              style={{ background: s.grad, boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
+              <s.icon size={20} className="text-white" />
             </div>
             <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{s.value}</div>
             <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{s.label}</div>
