@@ -45,6 +45,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [videoWatchedFraction, setVideoWatchedFraction] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
@@ -133,7 +134,7 @@ function nextQuestion() {
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
 {lesson.youtube_video_id ? (
             <div className="relative mb-5">
-              <RestrictedPlayer videoId={lesson.youtube_video_id} title={lesson.title} />
+              <RestrictedPlayer videoId={lesson.youtube_video_id} title={lesson.title} onProgress={setVideoWatchedFraction} />
               {/* Watermark */}
               <div className="video-watermark" style={{ position: "absolute", pointerEvents: "none", userSelect: "none" }}>
                 {profile?.full_name} · {profile?.id?.slice(0, 8)}
@@ -161,8 +162,14 @@ function nextQuestion() {
               <ChevronLeft size={16} /> Ortga
             </Link>
             {questions.length > 0 ? (
-              <button onClick={startQuiz} className="btn-primary">
-                Quizni boshlash <ChevronRight size={16} />
+              <button onClick={startQuiz} disabled={!!lesson.youtube_video_id && videoWatchedFraction < 0.8} className="btn-primary">
+                {!!lesson.youtube_video_id && videoWatchedFraction < 0.8
+                  ? `Videoni ko'ring (${Math.round(videoWatchedFraction * 100)}%)`
+                  : "Quizni boshlash"} <ChevronRight size={16} />
+              </button>
+            ) : (!!lesson.youtube_video_id && videoWatchedFraction < 0.8) ? (
+              <button disabled className="btn-primary opacity-50 cursor-not-allowed">
+                {`Videoni ko'ring (${Math.round(videoWatchedFraction * 100)}%)`} <ChevronRight size={16} />
               </button>
             ) : nextLesson ? (
               <Link href={`/courses/${courseId}/lessons/${nextLesson.id}`} className="btn-primary">

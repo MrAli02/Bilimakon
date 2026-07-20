@@ -69,9 +69,10 @@ function loadYouTubeAPI(): Promise<void> {
 interface Props {
   videoId: string;
   title: string;
+  onProgress?: (watchedFraction: number) => void;
 }
 
-export default function RestrictedPlayer({ videoId, title }: Props) {
+export default function RestrictedPlayer({ videoId, title, onProgress }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(0);
@@ -115,10 +116,13 @@ export default function RestrictedPlayer({ videoId, title }: Props) {
       if (!p) return;
       const t = p.getCurrentTime();
       setCurrent(t);
-      if (t > maxWatchedRef.current) maxWatchedRef.current = t;
+      if (t > maxWatchedRef.current) {
+        maxWatchedRef.current = t;
+        if (duration > 0) onProgress?.(maxWatchedRef.current / duration);
+      }
     }, 400);
     return () => clearInterval(interval);
-  }, [ready]);
+  }, [ready, duration, onProgress]);
 
   const togglePlay = useCallback(() => {
     const p = playerRef.current;
