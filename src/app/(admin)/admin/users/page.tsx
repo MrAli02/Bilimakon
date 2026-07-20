@@ -41,12 +41,14 @@ export default function AdminUsersPage() {
     return ms&&mf;
   });
 
-  async function toggleBlock(u:any){
-    await supabase.from("profiles").update({is_blocked:!u.is_blocked}).eq("id",u.id);
+async function toggleBlock(u:any){
+    const {error:e1} = await supabase.from("profiles").update({is_blocked:!u.is_blocked}).eq("id",u.id);
+    console.log("profiles update error:", e1);
     if(!u.is_blocked){
       await supabase.from("user_blocks").upsert({user_id:u.id,reason:"Admin tomonidan bloklandi",auto_blocked:false},{onConflict:"user_id"});
     } else {
-      await supabase.from("user_blocks").update({unblocked_at:new Date().toISOString()}).eq("user_id",u.id);
+      const {error:e2} = await supabase.from("user_blocks").update({unblocked_at:new Date().toISOString()}).eq("user_id",u.id);
+      console.log("user_blocks update error:", e2);
       await supabase.from("user_sessions").update({is_active:false}).eq("user_id",u.id);
       await supabase.from("profiles").update({device_count:0}).eq("id",u.id);
     }
