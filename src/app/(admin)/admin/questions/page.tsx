@@ -13,7 +13,7 @@ interface Question {
   difficulty: string; subject: string; created_at: string; lesson_id?: string;
 }
 
-const SUBJECTS = ["Informatika","Matematika","Fizika","Kimyo","Biologiya","Ona tili","Tarix","Ingliz tili"];
+const SUBJECTS = ["Informatika","Matematika","Fizika","Kimyo","Biologiya","Ona tili","Tarix","Ingliz tili","Kasbiy standart","Pedagogik mahorat"];
 function makeId() { return Math.random().toString(36).slice(2,8); }
 
 export default function AdminQuestionsPage() {
