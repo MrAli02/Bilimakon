@@ -6,10 +6,8 @@ import { Check, Clock, X, CreditCard, TrendingUp } from "lucide-react";
 async function confirmPayment(formData: FormData) {
   "use server";
   const paymentId = formData.get("paymentId") as string;
-  const userId = formData.get("userId") as string;
   const supabase = await createAdminClient();
   await supabase.from("payments").update({ status: "confirmed", confirmed_at: new Date().toISOString() }).eq("id", paymentId);
-  await supabase.from("simulator_attempts").insert({ user_id: userId, payment_id: paymentId, status: "active" });
   revalidatePath("/admin/payments");
 }
 

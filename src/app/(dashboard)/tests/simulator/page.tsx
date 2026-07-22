@@ -15,7 +15,16 @@ export default async function SimulatorPage() {
     .eq("status", "active")
     .single();
 
-  const { data: settingsRows } = await supabase.from("settings").select("key, value");
+  const { data: confirmedPayment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("status", "confirmed")
+    .eq("used", false)
+    .limit(1)
+    .maybeSingle(); 
+    
+    const { data: settingsRows } = await supabase.from("settings").select("key, value");
   const settings: Record<string, string> = {};
   settingsRows?.forEach((r: { key: string; value: string }) => { settings[r.key] = r.value; });
 
@@ -67,7 +76,7 @@ export default async function SimulatorPage() {
         ))}
       </div>
 
-      <SimulatorGate activeAttempt={activeAttempt} price={price} />
+      <SimulatorGate activeAttempt={activeAttempt} price={price} hasConfirmedPayment={!!confirmedPayment} />
 
       {pastAttempts && pastAttempts.length > 0 && (
         <div>
