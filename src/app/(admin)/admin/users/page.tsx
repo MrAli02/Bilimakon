@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Users, Search, Ban, CheckCircle, Key, Loader2, X, Smartphone, Copy, RefreshCw } from "lucide-react";
+import { Users, Search, Ban, CheckCircle, Key, Loader2, X, Smartphone, Copy, RefreshCw, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
@@ -53,7 +53,15 @@ async function toggleBlock(u:any){
     toast.success(u.is_blocked?"Blok ochildi":"Bloklandi");
     fetch();
   }
-
+async function clearTestData(u:any){
+    if(!confirm(`${u.full_name} uchun barcha to'lov va simulyator tarixini o'chirasizmi? Bu qaytarib bo'lmaydi.`)) return;
+    try{
+      const res=await window.fetch("/api/admin/clear-test-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:u.id})});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error??"Xatolik");
+      toast.success("Test ma'lumotlari tozalandi");
+    } catch(e:any){toast.error(e.message??"Xatolik");}
+  }
   async function saveKey(){
     if(!keyModal) return;
     setSavingKey(true);
@@ -162,6 +170,10 @@ async function toggleBlock(u:any){
                       {u.is_blocked?<CheckCircle size={15}/>:<Ban size={15}/>}
                     </button>
                   )}
+                  <button onClick={()=>clearTestData(u)} title="Test ma'lumotlarini tozalash (to'lov+urinishlar)"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-orange-50 transition-colors" style={{color:"#f59e0b"}}>
+                    <Trash2 size={15}/>
+                  </button>
                 </div>
               </div>
             ))}
