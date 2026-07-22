@@ -47,9 +47,21 @@ export default function SimulatorStartPage() {
       const count = Number(s.simulator_questions_count ?? 50);
       const duration = Number(s.simulator_duration_minutes ?? 90);
       setTimeLeft(duration * 60);
-      const { data: allQ } = await supabase.from("questions").select("*");
-      if (!allQ || allQ.length < 5) { toast.error("Savollar yetarli emas"); router.push("/tests/simulator"); return; }
-      const shuffled = shuffleArray(allQ).slice(0, Math.min(count, allQ.length))
+      const { data: profileRow } = await supabase.from("profiles").select("subject").eq("id", user.id).single();
+      const mainSubject = profileRow?.subject ?? "Informatika";
+
+      const { data: mainQ } = await supabase.from("questions").select("*").eq("subject", mainSubject);
+      const { data: standardQ } = await supabase.from("questions").select("*").eq("subject", "Kasbiy standart");
+      const { data: pedQ } = await supabase.from("questions").select("*").eq("subject", "Pedagogik mahorat");
+
+      const picked = [
+        ...shuffleArray(mainQ ?? []).slice(0, 35),
+        ...shuffleArray(standardQ ?? []).slice(0, 5),
+        ...shuffleArray(pedQ ?? []).slice(0, 10),
+      ];
+
+      if (picked.length < 5) { toast.error("Savollar yetarli emas"); router.push("/tests/simulator"); return; }
+      const shuffled = shuffleArray(picked)
         .map((q: any) => ({ ...q, options: shuffleArray(q.options) }));
       setQuestions(shuffled);
       setPhase("exam");
