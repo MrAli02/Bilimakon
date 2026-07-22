@@ -5,11 +5,11 @@ import { User, Mail, Phone, Save, Loader2, Lock, Eye, EyeOff, LogOut } from "luc
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-
+const SUBJECTS = ["Informatika","Matematika","Fizika","Kimyo","Biologiya","Ona tili","Tarix","Ingliz tili"];
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
-  const [form, setForm] = useState({ full_name: "", phone: "" });
+  const [form, setForm] = useState({ full_name: "", phone: "", subject: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
@@ -22,7 +22,7 @@ export default function ProfilePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-      if (p) { setProfile(p); setForm({ full_name: p.full_name ?? "", phone: p.phone ?? "" }); }
+      if (p) { setProfile(p); setForm({ full_name: p.full_name ?? "", phone: p.phone ?? "", subject: p.subject ?? "" }); }
       setLoading(false);
     }
     load();
@@ -33,7 +33,7 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       const { error } = await supabase.from("profiles")
-        .update({ full_name: form.full_name, phone: form.phone || null })
+        .update({ full_name: form.full_name, phone: form.phone || null, subject: form.subject || null })
         .eq("id", profile.id);
       if (error) throw error;
       toast.success("Profil yangilandi!");
@@ -122,6 +122,14 @@ export default function ProfilePage() {
                 onChange={e => setForm({ ...form, phone: e.target.value })}
                 placeholder="+998 90 123 45 67" />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Mutaxassislik fani</label>
+            <select className="input" value={form.subject}
+              onChange={e => setForm({ ...form, subject: e.target.value })}>
+              <option value="">— Tanlanmagan —</option>
+              {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
         </div>
         <button onClick={saveProfile} disabled={saving} className="btn-primary mt-4">
