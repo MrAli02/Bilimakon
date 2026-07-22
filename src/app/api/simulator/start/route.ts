@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
+const MAX_ATTEMPTS_PER_PAYMENT = 3;
+
 export async function POST() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -8,7 +10,7 @@ export async function POST() {
 
   const { data: payment } = await supabase
     .from("payments")
-    .select("id")
+    .select("id, attempts_used")
     .eq("user_id", user.id)
     .eq("status", "confirmed")
     .eq("used", false)
@@ -30,7 +32,12 @@ export async function POST() {
     return NextResponse.json({ error: "Urinish yaratilmadi" }, { status: 500 });
   }
 
-  await supabase.from("payments").update({ used: true }).eq("id", payment.id);
+  const newAttemptsUsed = payment.attempts_used + 1;
+  const isFullyUsed = newAttemptsUsed >= MAX_ATTEMPTS_PER_PAYMENT;
+
+  await supabase.from("payments")
+    .update({ attempts_used: newAttemptsUsed, used: isFullyUsed })
+    .eq("id", payment.id);
 
   return NextResponse.json({ ok: true, attemptId: attempt.id });
 }
