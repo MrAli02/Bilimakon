@@ -104,10 +104,11 @@ interface Props {
 }
 
 export default function RestrictedPlayer({ videoId, title, watermarkText, onProgress }: Props) {
-  const mountRef = useRef<HTMLDivElement>(null); // dedicated node the YT API is allowed to replace
-  const wrapRef = useRef<HTMLDivElement>(null); // the element that actually goes fullscreen
+  const mountRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(0);
+  const lastTimeRef = useRef(0); // <-- YANGI: fonga o'tishdan oldingi pozitsiyani saqlaydi
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -115,6 +116,9 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeFs, setUseNativeFs] = useState(true);
+
+  // <-- YANGI: iframe'ni konteynerni to'liq qoplaydigan (cover) o'lchamga keltirish
+  const [coverStyle, setCoverStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
 
   useEffect(() => {
     let destroyed = false;
@@ -159,7 +163,6 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     return () => clearInterval(interval);
   }, [ready, duration, onProgress]);
 
-  // Detect real Fullscreen API support once, on mount (iOS Safari lacks it for non-video elements)
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -170,7 +173,6 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     setUseNativeFs(supported);
   }, []);
 
-  // Listen for the browser's own fullscreen changes (covers exiting via back-gesture, ESC, etc.)
   useEffect(() => {
     function onFsChange() {
       const active = currentFsElement() === wrapRef.current;
@@ -188,15 +190,11 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     };
   }, []);
 
-  // Orientation lock + scroll lock. Only attempt orientation lock once we're
-  // actually in a real fullscreen element (that's a hard requirement on Android/Chrome).
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? "hidden" : "";
     const orientation = (screen as any).orientation;
     if (isFullscreen && currentFsElement()) {
-      orientation?.lock?.("landscape").catch(() => {
-        /* Not supported on this device/browser — safe to ignore */
-      });
+      orientation?.lock?.("landscape").catch(() => {});
     } else {
       orientation?.unlock?.();
     }
@@ -213,6 +211,75 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [isFullscreen]);
+
+  // <-- YANGI: video (16:9) konteynerni to'liq qoplashi uchun o'lcham hisoblash.
+  // YouTube iframe hech qachon o'z ichidagi videoni cho'zib bermaydi (letterbox qiladi),
+  // shuning uchun iframe'ning o'zini kattalashtirib, ortiqchasini kesib tashlaymiz.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+
+    function recompute() {
+      if (!el) return;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (!w || !h) return;
+      const videoAspect = 16 / 9;
+      const containerAspect = w / h;
+      let newW: number, newH: number;
+      if (containerAspect > videoAspect) {
+        newW = w;
+        newH = w / videoAspect;
+      } else {
+        newH = h;
+        newW = h * videoAspect;
+      }
+      setCoverStyle({
+        width: `${newW}px`,
+        height: `${newH}px`,
+        left: `${(w - newW) / 2}px`,
+        top: `${(h - newH) / 2}px`,
+      });
+    }
+
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    window.addEventListener("orientationchange", recompute);
+    document.addEventListener("fullscreenchange", recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("orientationchange", recompute);
+      document.removeEventListener("fullscreenchange", recompute);
+    };
+  }, [isFullscreen]);
+
+  // <-- YANGI: ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
+  // to'xtatib, pozitsiyani saqlaymiz; qaytib kelganda o'sha joyda pauzada turadi.
+  useEffect(() => {
+    function handleVisibility() {
+      const p = playerRef.current;
+      if (!p) return;
+      if (document.hidden) {
+        try {
+          lastTimeRef.current = p.getCurrentTime();
+        } catch {}
+        p.pauseVideo();
+      } else {
+        setTimeout(() => {
+          try {
+            const cur = p.getCurrentTime();
+            if (Math.abs(cur - lastTimeRef.current) > 1) {
+              p.seekTo(lastTimeRef.current, true);
+            }
+          } catch {}
+          p.pauseVideo(); // foydalanuvchi Play tugmasini bossagina davom etadi
+        }, 300);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   const togglePlay = useCallback(() => {
     const p = playerRef.current;
@@ -238,18 +305,17 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
         try {
           await requestFs(el);
         } catch {
-          // Some mobile browsers reject requestFullscreen outside a direct user
-          // gesture chain — fall back to CSS pseudo-fullscreen for this session.
           setUseNativeFs(false);
           setIsFullscreen((v) => !v);
         }
       }
     } else {
-      // CSS-only fallback (iOS Safari and any browser without element fullscreen support)
       setIsFullscreen((v) => !v);
     }
   }, [useNativeFs]);
 
+  // Oldinga (hali ko'rilmagan joyga) sakrashni bloklaydi — faqat orqaga
+  // va allaqachon ko'rilgan joygacha oldinga qaytarish mumkin.
   function seekTo(fraction: number) {
     const p = playerRef.current;
     if (!p || !duration) return;
@@ -286,15 +352,20 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Dedicated mount node — the YT API is allowed to fully replace THIS node with
-          its own iframe. CSS below forces pointer-events:none on whatever it injects,
-          so touches never reach YouTube's own UI (this is what stops the native
-          share/seek/fullscreen gestures leaking through on Android/Samsung Internet). */}
-      <div className="absolute inset-0 w-full h-full yt-mount-zone">
+      <div
+        className="absolute inset-0 w-full h-full yt-mount-zone"
+        style={
+          {
+            "--cover-w": coverStyle.width,
+            "--cover-h": coverStyle.height,
+            "--cover-left": coverStyle.left,
+            "--cover-top": coverStyle.top,
+          } as React.CSSProperties
+        }
+      >
         <div ref={mountRef} className="w-full h-full" title={title} />
       </div>
 
-      {/* This overlay captures ALL touch/click input instead of the iframe */}
       <div
         className="absolute inset-0"
         onClick={togglePlay}
@@ -382,14 +453,14 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
           75% { top: 60%; left: 15%; }
           100% { top: 10%; left: 5%; }
         }
-        /* Forces YouTube's injected iframe to be fully non-interactive, no matter
-           what element the IFrame API replaces our mount node with. This is what
-           stops the native share sheet / seek-ahead / double-tap fullscreen from
-           being reachable on mobile browsers like Samsung Internet. */
         .yt-mount-zone :global(iframe) {
           pointer-events: none !important;
-          width: 100% !important;
-          height: 100% !important;
+          position: absolute !important;
+          width: var(--cover-w) !important;
+          height: var(--cover-h) !important;
+          left: var(--cover-left) !important;
+          top: var(--cover-top) !important;
+          max-width: none !important;
         }
         :global(.restricted-player-root:fullscreen) {
           width: 100vw;
