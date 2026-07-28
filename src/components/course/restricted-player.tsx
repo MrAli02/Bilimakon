@@ -12,6 +12,7 @@ interface YTPlayerVars {
   iv_load_policy?: 1 | 3;
   fs?: 0 | 1;
   playsinline?: 0 | 1;
+  origin?: string;
 }
 
 interface YTPlayerEvent {
@@ -65,6 +66,35 @@ function loadYouTubeAPI(): Promise<void> {
   return apiPromise;
 }
 
+function requestFs(el: HTMLElement): Promise<void> | undefined {
+  const anyEl = el as any;
+  if (el.requestFullscreen) return el.requestFullscreen();
+  if (anyEl.webkitRequestFullscreen) return anyEl.webkitRequestFullscreen();
+  if (anyEl.mozRequestFullScreen) return anyEl.mozRequestFullScreen();
+  if (anyEl.msRequestFullscreen) return anyEl.msRequestFullscreen();
+  return undefined;
+}
+
+function exitFs(): Promise<void> | undefined {
+  const doc = document as any;
+  if (document.exitFullscreen) return document.exitFullscreen();
+  if (doc.webkitExitFullscreen) return doc.webkitExitFullscreen();
+  if (doc.mozCancelFullScreen) return doc.mozCancelFullScreen();
+  if (doc.msExitFullscreen) return doc.msExitFullscreen();
+  return undefined;
+}
+
+function currentFsElement(): Element | null {
+  const doc = document as any;
+  return (
+    document.fullscreenElement ||
+    doc.webkitFullscreenElement ||
+    doc.mozFullScreenElement ||
+    doc.msFullscreenElement ||
+    null
+  );
+}
+
 // ==================== Component ====================
 interface Props {
   videoId: string;
@@ -74,8 +104,8 @@ interface Props {
 }
 
 export default function RestrictedPlayer({ videoId, title, watermarkText, onProgress }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const mountRef = useRef<HTMLDivElement>(null); // dedicated node the YT API is allowed to replace
+  const wrapRef = useRef<HTMLDivElement>(null); // the element that actually goes fullscreen
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(0);
   const [ready, setReady] = useState(false);
@@ -84,16 +114,18 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [useNativeFs, setUseNativeFs] = useState(true);
 
   useEffect(() => {
     let destroyed = false;
     loadYouTubeAPI().then(() => {
-      if (destroyed || !containerRef.current || !window.YT) return;
-      playerRef.current = new window.YT.Player(containerRef.current, {
+      if (destroyed || !mountRef.current || !window.YT) return;
+      playerRef.current = new window.YT.Player(mountRef.current, {
         videoId,
         playerVars: {
           controls: 0, disablekb: 1, modestbranding: 1, rel: 0,
           iv_load_policy: 3, fs: 0, playsinline: 1,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
         },
         events: {
           onReady: (e) => {
@@ -127,13 +159,43 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     return () => clearInterval(interval);
   }, [ready, duration, onProgress]);
 
-  // Pseudo-fullscreen: fon skrolini bloklash + mobil/planshetda albom rejimga qulflash
+  // Detect real Fullscreen API support once, on mount (iOS Safari lacks it for non-video elements)
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const anyEl = el as any;
+    const supported = !!(
+      el.requestFullscreen || anyEl.webkitRequestFullscreen || anyEl.mozRequestFullScreen || anyEl.msRequestFullscreen
+    );
+    setUseNativeFs(supported);
+  }, []);
+
+  // Listen for the browser's own fullscreen changes (covers exiting via back-gesture, ESC, etc.)
+  useEffect(() => {
+    function onFsChange() {
+      const active = currentFsElement() === wrapRef.current;
+      setIsFullscreen(active);
+    }
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    document.addEventListener("mozfullscreenchange", onFsChange);
+    document.addEventListener("MSFullscreenChange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+      document.removeEventListener("mozfullscreenchange", onFsChange);
+      document.removeEventListener("MSFullscreenChange", onFsChange);
+    };
+  }, []);
+
+  // Orientation lock + scroll lock. Only attempt orientation lock once we're
+  // actually in a real fullscreen element (that's a hard requirement on Android/Chrome).
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? "hidden" : "";
     const orientation = (screen as any).orientation;
-    if (isFullscreen) {
+    if (isFullscreen && currentFsElement()) {
       orientation?.lock?.("landscape").catch(() => {
-        /* Desktop yoki qo'llab-quvvatlamaydigan brauzerda jim o'tkaziladi */
+        /* Not supported on this device/browser — safe to ignore */
       });
     } else {
       orientation?.unlock?.();
@@ -143,11 +205,10 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     };
   }, [isFullscreen]);
 
-  // ESC tugmasi bilan pseudo-fullscreen'dan chiqish (desktop uchun qulaylik)
   useEffect(() => {
     if (!isFullscreen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsFullscreen(false);
+      if (e.key === "Escape" && !currentFsElement()) setIsFullscreen(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -165,10 +226,29 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
     if (muted) { p.unMute(); setMuted(false); } else { p.mute(); setMuted(true); }
   }, [muted]);
 
-  const toggleFullscreen = useCallback((e: React.MouseEvent) => {
+  const toggleFullscreen = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsFullscreen((v) => !v);
-  }, []);
+    const el = wrapRef.current;
+    if (!el) return;
+
+    if (useNativeFs) {
+      if (currentFsElement()) {
+        await exitFs();
+      } else {
+        try {
+          await requestFs(el);
+        } catch {
+          // Some mobile browsers reject requestFullscreen outside a direct user
+          // gesture chain — fall back to CSS pseudo-fullscreen for this session.
+          setUseNativeFs(false);
+          setIsFullscreen((v) => !v);
+        }
+      }
+    } else {
+      // CSS-only fallback (iOS Safari and any browser without element fullscreen support)
+      setIsFullscreen((v) => !v);
+    }
+  }, [useNativeFs]);
 
   function seekTo(fraction: number) {
     const p = playerRef.current;
@@ -190,15 +270,15 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
   return (
     <div
       ref={wrapRef}
-      className="relative rounded-2xl overflow-hidden select-none"
+      className="relative rounded-2xl overflow-hidden select-none restricted-player-root"
       style={
         isFullscreen
           ? {
-              position: "fixed",
-              inset: 0,
-              width: "100vw",
-              height: "100vh",
-              zIndex: 999999,
+              position: useNativeFs ? "relative" : "fixed",
+              inset: useNativeFs ? undefined : 0,
+              width: "100%",
+              height: "100%",
+              zIndex: useNativeFs ? undefined : 999999,
               borderRadius: 0,
               background: "#000",
             }
@@ -206,9 +286,21 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none" title={title} />
+      {/* Dedicated mount node — the YT API is allowed to fully replace THIS node with
+          its own iframe. CSS below forces pointer-events:none on whatever it injects,
+          so touches never reach YouTube's own UI (this is what stops the native
+          share/seek/fullscreen gestures leaking through on Android/Samsung Internet). */}
+      <div className="absolute inset-0 w-full h-full yt-mount-zone">
+        <div ref={mountRef} className="w-full h-full" title={title} />
+      </div>
 
-      <div className="absolute inset-0" onClick={togglePlay} style={{ cursor: "pointer" }} />
+      {/* This overlay captures ALL touch/click input instead of the iframe */}
+      <div
+        className="absolute inset-0"
+        onClick={togglePlay}
+        onContextMenu={(e) => e.preventDefault()}
+        style={{ cursor: "pointer", touchAction: "manipulation", zIndex: 5 }}
+      />
 
       {watermarkText && (
         <div
@@ -218,7 +310,7 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
             fontSize: 13,
             fontWeight: 600,
             textShadow: "0 0 4px rgba(0,0,0,0.6)",
-            zIndex: 15,
+            zIndex: 20,
           }}
         >
           {watermarkText}
@@ -226,13 +318,13 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
       )}
 
       {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 6 }}>
           <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
       {ready && !playing && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 6 }}>
           <div
             className="flex items-center justify-center rounded-full"
             style={{ width: 72, height: 72, background: "rgba(0,0,0,0.55)", border: "2px solid #a855f7" }}
@@ -245,7 +337,7 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
       {ready && (
         <div
           className="absolute bottom-0 left-0 right-0 p-3"
-          style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}
+          style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))", zIndex: 10 }}
           onClick={(e) => e.stopPropagation()}
         >
           <div
@@ -289,6 +381,19 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
           50% { top: 20%; left: 75%; }
           75% { top: 60%; left: 15%; }
           100% { top: 10%; left: 5%; }
+        }
+        /* Forces YouTube's injected iframe to be fully non-interactive, no matter
+           what element the IFrame API replaces our mount node with. This is what
+           stops the native share sheet / seek-ahead / double-tap fullscreen from
+           being reachable on mobile browsers like Samsung Internet. */
+        .yt-mount-zone :global(iframe) {
+          pointer-events: none !important;
+          width: 100% !important;
+          height: 100% !important;
+        }
+        :global(.restricted-player-root:fullscreen) {
+          width: 100vw;
+          height: 100vh;
         }
       `}</style>
     </div>

@@ -133,13 +133,14 @@ function nextQuestion() {
         <div>
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
 {lesson.youtube_video_id ? (
-            <div className="relative mb-5">
-              <RestrictedPlayer videoId={lesson.youtube_video_id} title={lesson.title} onProgress={setVideoWatchedFraction} />
-              {/* Watermark */}
-              <div className="video-watermark" style={{ position: "absolute", pointerEvents: "none", userSelect: "none" }}>
-                {profile?.full_name} · {profile?.id?.slice(0, 8)}
-              </div>
-            </div>
+            <div className="mb-5">
+  <RestrictedPlayer
+    videoId={lesson.youtube_video_id}
+    title={lesson.title}
+    onProgress={setVideoWatchedFraction}
+    watermarkText={`${profile?.full_name ?? ""} · ${profile?.id?.slice(0, 8) ?? ""}`}
+  />
+</div>
           ) : (
             <div className="rounded-2xl flex items-center justify-center mb-5"
               style={{ aspectRatio: "16/9", background: "var(--bg-secondary)", border: "1.5px dashed var(--border)" }}>
