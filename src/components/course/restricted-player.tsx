@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize } from "lucide-react";
 
 // ==================== YouTube IFrame API — minimal type definitions ====================
 interface YTPlayerVars {
@@ -69,11 +69,13 @@ function loadYouTubeAPI(): Promise<void> {
 interface Props {
   videoId: string;
   title: string;
+  watermarkText?: string;
   onProgress?: (watchedFraction: number) => void;
 }
 
-export default function RestrictedPlayer({ videoId, title, onProgress }: Props) {
+export default function RestrictedPlayer({ videoId, title, watermarkText, onProgress }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(0);
   const [ready, setReady] = useState(false);
@@ -81,6 +83,7 @@ export default function RestrictedPlayer({ videoId, title, onProgress }: Props) 
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     let destroyed = false;
@@ -124,6 +127,32 @@ export default function RestrictedPlayer({ videoId, title, onProgress }: Props) 
     return () => clearInterval(interval);
   }, [ready, duration, onProgress]);
 
+  // Pseudo-fullscreen: fon skrolini bloklash + mobil/planshetda albom rejimga qulflash
+  useEffect(() => {
+    document.body.style.overflow = isFullscreen ? "hidden" : "";
+    const orientation = (screen as any).orientation;
+    if (isFullscreen) {
+      orientation?.lock?.("landscape").catch(() => {
+        /* Desktop yoki qo'llab-quvvatlamaydigan brauzerda jim o'tkaziladi */
+      });
+    } else {
+      orientation?.unlock?.();
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFullscreen]);
+
+  // ESC tugmasi bilan pseudo-fullscreen'dan chiqish (desktop uchun qulaylik)
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isFullscreen]);
+
   const togglePlay = useCallback(() => {
     const p = playerRef.current;
     if (!p) return;
@@ -136,11 +165,15 @@ export default function RestrictedPlayer({ videoId, title, onProgress }: Props) 
     if (muted) { p.unMute(); setMuted(false); } else { p.mute(); setMuted(true); }
   }, [muted]);
 
-function seekTo(fraction: number) {
+  const toggleFullscreen = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsFullscreen((v) => !v);
+  }, []);
+
+  function seekTo(fraction: number) {
     const p = playerRef.current;
     if (!p || !duration) return;
     const target = fraction * duration;
-    // Agar ilgari ko'rilmagan joyga bossa — aynan ko'rilgan joyning oxiriga qaytaradi
     const clamped = target > maxWatchedRef.current ? maxWatchedRef.current : target;
     p.seekTo(clamped, true);
   }
@@ -155,12 +188,42 @@ function seekTo(fraction: number) {
   const watchedPct = duration ? (maxWatchedRef.current / duration) * 100 : 0;
 
   return (
-    <div className="relative rounded-2xl overflow-hidden select-none" style={{ aspectRatio: "16/9", background: "#000" }}>
-      {/* YouTube player (o'z boshqaruvlari yashirilgan) */}
+    <div
+      ref={wrapRef}
+      className="relative rounded-2xl overflow-hidden select-none"
+      style={
+        isFullscreen
+          ? {
+              position: "fixed",
+              inset: 0,
+              width: "100vw",
+              height: "100vh",
+              zIndex: 999999,
+              borderRadius: 0,
+              background: "#000",
+            }
+          : { position: "relative", aspectRatio: "16/9", background: "#000" }
+      }
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none" title={title} />
 
-      {/* Shaffof qalqon — tashqi YouTube havolalariga bosishni to'sadi */}
       <div className="absolute inset-0" onClick={togglePlay} style={{ cursor: "pointer" }} />
+
+      {watermarkText && (
+        <div
+          className="absolute pointer-events-none select-none watermark-float"
+          style={{
+            color: "rgba(255,255,255,0.55)",
+            fontSize: 13,
+            fontWeight: 600,
+            textShadow: "0 0 4px rgba(0,0,0,0.6)",
+            zIndex: 15,
+          }}
+        >
+          {watermarkText}
+        </div>
+      )}
 
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -168,10 +231,23 @@ function seekTo(fraction: number) {
         </div>
       )}
 
-      {/* Custom boshqaruvlar */}
+      {ready && !playing && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className="flex items-center justify-center rounded-full"
+            style={{ width: 72, height: 72, background: "rgba(0,0,0,0.55)", border: "2px solid #a855f7" }}
+          >
+            <Play size={32} color="#a855f7" style={{ marginLeft: 4 }} />
+          </div>
+        </div>
+      )}
+
       {ready && (
-        <div className="absolute bottom-0 left-0 right-0 p-3" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}
-          onClick={(e) => e.stopPropagation()}>
+        <div
+          className="absolute bottom-0 left-0 right-0 p-3"
+          style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div
             className="relative w-full h-1.5 rounded-full mb-2 cursor-pointer"
             style={{ background: "rgba(255,255,255,0.25)" }}
@@ -179,7 +255,8 @@ function seekTo(fraction: number) {
               const rect = e.currentTarget.getBoundingClientRect();
               const fraction = (e.clientX - rect.left) / rect.width;
               seekTo(Math.max(0, Math.min(1, fraction)));
-            }}>
+            }}
+          >
             <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${watchedPct}%`, background: "rgba(255,255,255,0.4)" }} />
             <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${progressPct}%`, background: "#a855f7" }} />
           </div>
@@ -194,9 +271,26 @@ function seekTo(fraction: number) {
             <span className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.8)" }}>
               {fmt(current)} / {fmt(duration)}
             </span>
+            <div className="flex-1" />
+            <button onClick={toggleFullscreen} className="hover:opacity-80 transition-opacity" aria-label={isFullscreen ? "Kichraytirish" : "Kattalashtirish"}>
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        .watermark-float {
+          animation: floatWatermark 16s linear infinite;
+        }
+        @keyframes floatWatermark {
+          0% { top: 10%; left: 5%; }
+          25% { top: 70%; left: 60%; }
+          50% { top: 20%; left: 75%; }
+          75% { top: 60%; left: 15%; }
+          100% { top: 10%; left: 5%; }
+        }
+      `}</style>
     </div>
   );
 }
