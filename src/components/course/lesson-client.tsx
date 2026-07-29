@@ -46,17 +46,22 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [videoWatchedFraction, setVideoWatchedFraction] = useState(0);
+  const [watchedSeconds, setWatchedSeconds] = useState(initialProgress?.watched_seconds ?? 0);
   const [initialWatchedSeconds, setInitialWatchedSeconds] = useState(initialProgress?.watched_seconds ?? 0);
   const [progressReady, setProgressReady] = useState(initialProgress?.watched_seconds != null);
   const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
+
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSecondsRef = useRef(initialProgress?.watched_seconds ?? 0);
   const pendingSecondsRef = useRef<number | null>(null);
 
+  // Server-side GREATEST() orqali saqlaydi — race condition va progress
+  // kamayib ketishidan butunlay himoyalangan.
   const persistWatchedSeconds = useCallback(async (toSave: number) => {
     if (toSave <= lastSavedSecondsRef.current) return;
+    pendingSecondsRef.current = null;
     try {
       const { error } = await supabase.rpc("upsert_watched_seconds", {
         p_lesson_id: lesson.id,
@@ -64,9 +69,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
       });
       if (!error) {
         lastSavedSecondsRef.current = Math.max(lastSavedSecondsRef.current, toSave);
-        if (pendingSecondsRef.current != null && pendingSecondsRef.current <= lastSavedSecondsRef.current) {
-          pendingSecondsRef.current = null;
-        }
       } else {
         console.error(error);
       }
@@ -78,6 +80,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const handleVideoProgress = useCallback((fraction: number, seconds: number) => {
     setVideoWatchedFraction(fraction);
     const toSave = Math.floor(seconds);
+    setWatchedSeconds(toSave);
     pendingSecondsRef.current = toSave;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
@@ -85,6 +88,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     }, 2000);
   }, [persistWatchedSeconds]);
 
+  // Uzoq tomosha paytida ham progress muntazam saqlansin — faqat pauzada emas
   useEffect(() => {
     const interval = setInterval(() => {
       if (pendingSecondsRef.current != null) {
@@ -94,6 +98,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     return () => clearInterval(interval);
   }, [persistWatchedSeconds]);
 
+  // Component unmount bo'lganda (SPA ichida navigatsiya) pending progressni yozib ulguramiz
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -103,27 +108,22 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     };
   }, [persistWatchedSeconds]);
 
+  // Tab yashirilganda / sahifa yopilganda kafolatlangan saqlash uchun sendBeacon
   useEffect(() => {
     function flushBeacon() {
       const toSave = pendingSecondsRef.current;
       if (toSave == null || toSave <= lastSavedSecondsRef.current) return;
+      lastSavedSecondsRef.current = toSave;
       pendingSecondsRef.current = null;
       const payload = JSON.stringify({ lessonId: lesson.id, watchedSeconds: toSave });
       const blob = new Blob([payload], { type: "application/json" });
-      if (!navigator.sendBeacon("/api/progress", blob)) {
-        fetch("/api/progress", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true,
-        }).catch(() => {});
+      if (!navigator.sendBeacon("/api/progress-beacon", blob)) {
+        fetch("/api/progress-beacon", { method: "POST", body: payload, keepalive: true }).catch(() => {});
       }
     }
-
     function onVisibility() {
       if (document.hidden) flushBeacon();
     }
-
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flushBeacon);
     return () => {
@@ -150,6 +150,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         const saved = data?.watched_seconds ?? 0;
         if (saved > 0) {
           setInitialWatchedSeconds(saved);
+          setWatchedSeconds(saved);
           lastSavedSecondsRef.current = saved;
         }
       } catch (e) {
@@ -168,12 +169,12 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     setQuizQuestions(shuffled);
     setCurrentQ(0);
     setAnswers({});
-setSelectedOption(null);
+    setSelectedOption(null);
     setRevealed(false);
     setPhase("quiz");
   }
 
-function selectAnswer(optionId: string) {
+  function selectAnswer(optionId: string) {
     if (revealed) return;
     setSelectedOption(optionId);
     setAnswers(prev => ({ ...prev, [quizQuestions[currentQ].id]: optionId }));
@@ -184,7 +185,7 @@ function selectAnswer(optionId: string) {
     setRevealed(true);
   }
 
-function nextQuestion() {
+  function nextQuestion() {
     if (currentQ < quizQuestions.length - 1) {
       setCurrentQ(currentQ + 1);
       setSelectedOption(null);
@@ -207,11 +208,11 @@ function nextQuestion() {
         quiz_passed: passed,
         quiz_score: score,
         completed_at: passed ? new Date().toISOString() : null,
+        watched_seconds: watchedSeconds,
       }, { onConflict: "user_id,lesson_id" });
 
       if (passed) {
         toast.success("Dars muvaffaqiyatli bajarildi! 🎉");
-        // Update enrollment progress
         await fetch("/api/progress", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -242,23 +243,23 @@ function nextQuestion() {
       {phase === "video" && (
         <div>
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
-{lesson.youtube_video_id ? (
+          {lesson.youtube_video_id ? (
             <div className="mb-5">
-  {progressReady ? (
-  <RestrictedPlayer
-    videoId={lesson.youtube_video_id}
-    title={lesson.title}
-    initialWatchedSeconds={initialWatchedSeconds}
-    onProgress={handleVideoProgress}
-    watermarkText={`${profile?.full_name ?? ""} · ${profile?.id?.slice(0, 8) ?? ""}`}
-  />
-  ) : (
-    <div className="rounded-2xl flex items-center justify-center"
-      style={{ aspectRatio: "16/9", background: "#000" }}>
-      <Loader2 size={32} className="animate-spin text-purple-500" />
-    </div>
-  )}
-</div>
+              {progressReady ? (
+                <RestrictedPlayer
+                  videoId={lesson.youtube_video_id}
+                  title={lesson.title}
+                  initialWatchedSeconds={initialWatchedSeconds}
+                  onProgress={handleVideoProgress}
+                  watermarkText={`${profile?.full_name ?? ""} · ${profile?.id?.slice(0, 8) ?? ""}`}
+                />
+              ) : (
+                <div className="rounded-2xl flex items-center justify-center"
+                  style={{ aspectRatio: "16/9", background: "#000" }}>
+                  <Loader2 size={32} className="animate-spin text-purple-500" />
+                </div>
+              )}
+            </div>
           ) : (
             <div className="rounded-2xl flex items-center justify-center mb-5"
               style={{ aspectRatio: "16/9", background: "var(--bg-secondary)", border: "1.5px dashed var(--border)" }}>
@@ -322,7 +323,7 @@ function nextQuestion() {
               {q.options.map((opt: { id: string; text: string }, idx: number) => {
                 const isSel = selectedOption === opt.id;
                 const isCorrect = opt.id === q.correct_option_id;
-const showGreen = revealed && isCorrect;
+                const showGreen = revealed && isCorrect;
                 const showRed = revealed && isSel && !isCorrect;
                 return (
                   <button key={opt.id} onClick={() => selectAnswer(opt.id)} 
@@ -348,7 +349,6 @@ const showGreen = revealed && isCorrect;
                 );
               })}
             </div>
-            {/* Static explanation — no AI */}
             {revealed && answers[q.id] !== q.correct_option_id && q.explanation && (
               <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
                 <p className="text-sm font-semibold text-yellow-600 mb-1">💡 Tushuntirish</p>
@@ -357,7 +357,7 @@ const showGreen = revealed && isCorrect;
             )}
           </div>
 
-{selectedOption && !revealed && (
+          {selectedOption && !revealed && (
             <div className="flex justify-end">
               <button onClick={confirmAnswer} className="btn-primary">
                 Javobni tasdiqlash <ChevronRight size={16} />
@@ -394,7 +394,6 @@ const showGreen = revealed && isCorrect;
             {quizPassed ? "Keyingi darsga o'tishingiz mumkin." : "O'tish bali: 60%. Qayta urinib ko'ring."}
           </p>
 
-          {/* Incorrect answers breakdown */}
           {quizQuestions.length > 0 && quizQuestions.some(q => answers[q.id] !== q.correct_option_id) && (
             <div className="card p-5 text-left mb-6 max-h-64 overflow-y-auto">
               <p className="font-bold text-sm mb-3" style={{ color: "var(--text-primary)" }}>Noto'g'ri javoblar:</p>

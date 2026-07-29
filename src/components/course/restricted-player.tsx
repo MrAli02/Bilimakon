@@ -29,6 +29,8 @@ interface YTPlayer {
   unMute(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   destroy(): void;
+  setPlaybackQuality?(quality: string): void;
+  getAvailableQualityLevels?(): string[];
 }
 
 interface YTNamespace {
@@ -115,7 +117,7 @@ export default function RestrictedPlayer({
   const wrapRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(initialWatchedSeconds);
-  const lastTimeRef = useRef(0); // <-- YANGI: fonga o'tishdan oldingi pozitsiyani saqlaydi
+  const lastTimeRef = useRef(0); // fonga o'tishdan oldingi pozitsiyani saqlaydi
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -124,8 +126,26 @@ export default function RestrictedPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeFs, setUseNativeFs] = useState(true);
 
-  // <-- YANGI: iframe'ni konteynerni to'liq qoplaydigan (cover) o'lchamga keltirish
+  // iframe'ni konteynerni to'liq qoplaydigan (cover) o'lchamga keltirish
   const [coverStyle, setCoverStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
+
+  // ==================================================================
+  // MUHIM TUZATISH: videoId (yoki initialWatchedSeconds) o'zgarganda
+  // eski videoning maxWatchedRef/lastTimeRef/duration/current/ready
+  // qiymatlari YANGI videoga "sizib o'tib" qolmasligi kerak.
+  // Aynan shu tuzatish bo'lmasa: keyingi videoga o'tilganda progress
+  // eski video davomiyligiga nisbatan hisoblanadi, natijada backendga
+  // noto'g'ri foiz yuboriladi va quiz to'g'ri ochilmaydi.
+  // ==================================================================
+  useEffect(() => {
+    maxWatchedRef.current = initialWatchedSeconds;
+    lastTimeRef.current = 0;
+    setCurrent(0);
+    setDuration(0);
+    setReady(false);
+    setPlaying(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId, initialWatchedSeconds]);
 
   useEffect(() => {
     let destroyed = false;
@@ -142,6 +162,12 @@ export default function RestrictedPlayer({
           onReady: (e) => {
             setReady(true);
             setDuration(e.target.getDuration());
+            // Fullscreen/kichik ekranda bir xil sifat ko'rsatilishi uchun
+            // eng yuqori mavjud sifatni so'raymiz (YouTube tarmoqqa qarab
+            // pastroq tanlashi mumkin, lekin bu "forse-low" holatlarni oldini oladi).
+            try {
+              e.target.setPlaybackQuality?.("hd1080");
+            } catch {}
           },
           onStateChange: (e) => {
             setPlaying(e.data === window.YT?.PlayerState.PLAYING);
@@ -165,9 +191,9 @@ export default function RestrictedPlayer({
       if (t > maxWatchedRef.current) {
         maxWatchedRef.current = t;
         if (duration > 0) onProgress?.(
-  maxWatchedRef.current / duration,
-  Math.floor(maxWatchedRef.current)
-);
+          maxWatchedRef.current / duration,
+          Math.floor(maxWatchedRef.current)
+        );
       }
     }, 400);
     return () => clearInterval(interval);
@@ -187,6 +213,13 @@ export default function RestrictedPlayer({
     function onFsChange() {
       const active = currentFsElement() === wrapRef.current;
       setIsFullscreen(active);
+      // Fullscreenga kirganda ham sifatni qayta so'raymiz — ba'zi
+      // brauzerlarda resize paytida YouTube pastroq sifatga tushib qolishi mumkin.
+      if (active) {
+        try {
+          playerRef.current?.setPlaybackQuality?.("hd1080");
+        } catch {}
+      }
     }
     document.addEventListener("fullscreenchange", onFsChange);
     document.addEventListener("webkitfullscreenchange", onFsChange);
@@ -222,7 +255,7 @@ export default function RestrictedPlayer({
     return () => window.removeEventListener("keydown", handler);
   }, [isFullscreen]);
 
-  // <-- YANGI: video (16:9) konteynerni to'liq qoplashi uchun o'lcham hisoblash.
+  // Video (16:9) konteynerni to'liq qoplashi uchun o'lcham hisoblash.
   // YouTube iframe hech qachon o'z ichidagi videoni cho'zib bermaydi (letterbox qiladi),
   // shuning uchun iframe'ning o'zini kattalashtirib, ortiqchasini kesib tashlaymiz.
   useEffect(() => {
@@ -264,7 +297,7 @@ export default function RestrictedPlayer({
     };
   }, [isFullscreen]);
 
-  // <-- YANGI: ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
+  // Ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
   // to'xtatib, pozitsiyani saqlaymiz; qaytib kelganda o'sha joyda pauzada turadi.
   useEffect(() => {
     function handleVisibility() {
@@ -387,11 +420,14 @@ export default function RestrictedPlayer({
         <div
           className="absolute pointer-events-none select-none watermark-float"
           style={{
+            top: "10%",
+            left: "5%",
             color: "rgba(255,255,255,0.55)",
             fontSize: 13,
             fontWeight: 600,
             textShadow: "0 0 4px rgba(0,0,0,0.6)",
-            zIndex: 20,
+            zIndex: 30,
+            whiteSpace: "nowrap",
           }}
         >
           {watermarkText}

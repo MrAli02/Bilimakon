@@ -7,19 +7,34 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { courseId, lessonId, isCompleted } = await req.json();
+    const body = await req.json();
+    const { courseId, lessonId, watchedSeconds, isCompleted } = body;
     if (!lessonId) return NextResponse.json({ error: "lessonId required" }, { status: 400 });
 
-    // Upsert lesson progress
-    await supabase.from("lesson_progress").upsert({
+    // Faqat kelgan maydonlarni yozamiz — yo'q maydon eski qiymatni buzmaydi
+    const upsertData: Record<string, unknown> = {
       user_id: user.id,
       lesson_id: lessonId,
-      is_completed: isCompleted ?? false,
-      completed_at: isCompleted ? new Date().toISOString() : null,
-    }, { onConflict: "user_id,lesson_id" });
+    };
 
-    // Recalculate enrollment progress if courseId provided
-    if (courseId && isCompleted) {
+    if (typeof watchedSeconds === "number") {
+      upsertData.watched_seconds = watchedSeconds;
+    }
+
+    // MUHIM: is_completed faqat aniq true/false kelganda yoziladi.
+    // Beacon so'rovida (sahifadan chiqishda) bu maydon yuborilmaydi,
+    // shuning uchun eski "tugatilgan" holat endi FALSEga aylanib qolmaydi.
+    if (typeof isCompleted === "boolean") {
+      upsertData.is_completed = isCompleted;
+      upsertData.completed_at = isCompleted ? new Date().toISOString() : null;
+    }
+
+    await supabase
+      .from("lesson_progress")
+      .upsert(upsertData, { onConflict: "user_id,lesson_id" });
+
+    // Kurs progressini faqat dars haqiqatan tugatilganda qayta hisoblaymiz
+    if (courseId && isCompleted === true) {
       const { data: allLessons } = await supabase
         .from("lessons")
         .select("id, modules!inner(course_id)")
@@ -36,7 +51,8 @@ export async function POST(req: NextRequest) {
           .in("lesson_id", lessonIds);
 
         const pct = Math.round(((doneCount ?? 0) / allLessons.length) * 100);
-        await supabase.from("enrollments")
+        await supabase
+          .from("enrollments")
           .update({
             progress_percentage: pct,
             completed_at: pct === 100 ? new Date().toISOString() : null,
