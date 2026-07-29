@@ -99,15 +99,22 @@ function currentFsElement(): Element | null {
 interface Props {
   videoId: string;
   title: string;
+  initialWatchedSeconds?: number;
   watermarkText?: string;
-  onProgress?: (watchedFraction: number) => void;
+  onProgress?: (watchedFraction: number, watchedSeconds: number) => void;
 }
 
-export default function RestrictedPlayer({ videoId, title, watermarkText, onProgress }: Props) {
+export default function RestrictedPlayer({
+  videoId,
+  title,
+  initialWatchedSeconds = 0,
+  watermarkText,
+  onProgress,
+}: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
-  const maxWatchedRef = useRef(0);
+  const maxWatchedRef = useRef(initialWatchedSeconds);
   const lastTimeRef = useRef(0); // <-- YANGI: fonga o'tishdan oldingi pozitsiyani saqlaydi
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -157,7 +164,10 @@ export default function RestrictedPlayer({ videoId, title, watermarkText, onProg
       setCurrent(t);
       if (t > maxWatchedRef.current) {
         maxWatchedRef.current = t;
-        if (duration > 0) onProgress?.(maxWatchedRef.current / duration);
+        if (duration > 0) onProgress?.(
+  maxWatchedRef.current / duration,
+  Math.floor(maxWatchedRef.current)
+);
       }
     }, 400);
     return () => clearInterval(interval);

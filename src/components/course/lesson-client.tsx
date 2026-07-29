@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Loader2, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -30,7 +30,7 @@ interface NextLessonInfo {
 interface Props {
   lesson: LessonInfo;
   questions: Question[];
-  initialProgress: { quiz_passed?: boolean } | null;
+  initialProgress: { quiz_passed?: boolean; watched_seconds?: number } | null;
   profile: ProfileInfo | null;
   courseId: string;
   nextLesson: NextLessonInfo | null;
@@ -46,9 +46,120 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [videoWatchedFraction, setVideoWatchedFraction] = useState(0);
+  const [initialWatchedSeconds, setInitialWatchedSeconds] = useState(initialProgress?.watched_seconds ?? 0);
+  const [progressReady, setProgressReady] = useState(initialProgress?.watched_seconds != null);
   const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedSecondsRef = useRef(initialProgress?.watched_seconds ?? 0);
+  const pendingSecondsRef = useRef<number | null>(null);
+
+  const persistWatchedSeconds = useCallback(async (toSave: number) => {
+    if (toSave <= lastSavedSecondsRef.current) return;
+    try {
+      const { error } = await supabase.rpc("upsert_watched_seconds", {
+        p_lesson_id: lesson.id,
+        p_seconds: toSave,
+      });
+      if (!error) {
+        lastSavedSecondsRef.current = Math.max(lastSavedSecondsRef.current, toSave);
+        if (pendingSecondsRef.current != null && pendingSecondsRef.current <= lastSavedSecondsRef.current) {
+          pendingSecondsRef.current = null;
+        }
+      } else {
+        console.error(error);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [supabase, lesson.id]);
+
+  const handleVideoProgress = useCallback((fraction: number, seconds: number) => {
+    setVideoWatchedFraction(fraction);
+    const toSave = Math.floor(seconds);
+    pendingSecondsRef.current = toSave;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      persistWatchedSeconds(toSave);
+    }, 2000);
+  }, [persistWatchedSeconds]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (pendingSecondsRef.current != null) {
+        persistWatchedSeconds(pendingSecondsRef.current);
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [persistWatchedSeconds]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
+        persistWatchedSeconds(pendingSecondsRef.current);
+      }
+    };
+  }, [persistWatchedSeconds]);
+
+  useEffect(() => {
+    function flushBeacon() {
+      const toSave = pendingSecondsRef.current;
+      if (toSave == null || toSave <= lastSavedSecondsRef.current) return;
+      pendingSecondsRef.current = null;
+      const payload = JSON.stringify({ lessonId: lesson.id, watchedSeconds: toSave });
+      const blob = new Blob([payload], { type: "application/json" });
+      if (!navigator.sendBeacon("/api/progress", blob)) {
+        fetch("/api/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }
+
+    function onVisibility() {
+      if (document.hidden) flushBeacon();
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushBeacon);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushBeacon);
+    };
+  }, [lesson.id]);
+
+  useEffect(() => {
+    if (initialProgress?.watched_seconds != null) {
+      setProgressReady(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("lesson_progress")
+          .select("watched_seconds")
+          .eq("user_id", userId)
+          .eq("lesson_id", lesson.id)
+          .maybeSingle();
+        if (cancelled) return;
+        const saved = data?.watched_seconds ?? 0;
+        if (saved > 0) {
+          setInitialWatchedSeconds(saved);
+          lastSavedSecondsRef.current = saved;
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setProgressReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, userId, lesson.id, initialProgress?.watched_seconds]);
 
   function startQuiz() {
     const shuffled = shuffleArray(questions)
@@ -96,7 +207,6 @@ function nextQuestion() {
         quiz_passed: passed,
         quiz_score: score,
         completed_at: passed ? new Date().toISOString() : null,
-        watched_seconds: 0,
       }, { onConflict: "user_id,lesson_id" });
 
       if (passed) {
@@ -134,12 +244,20 @@ function nextQuestion() {
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
 {lesson.youtube_video_id ? (
             <div className="mb-5">
+  {progressReady ? (
   <RestrictedPlayer
     videoId={lesson.youtube_video_id}
     title={lesson.title}
-    onProgress={setVideoWatchedFraction}
+    initialWatchedSeconds={initialWatchedSeconds}
+    onProgress={handleVideoProgress}
     watermarkText={`${profile?.full_name ?? ""} · ${profile?.id?.slice(0, 8) ?? ""}`}
   />
+  ) : (
+    <div className="rounded-2xl flex items-center justify-center"
+      style={{ aspectRatio: "16/9", background: "#000" }}>
+      <Loader2 size={32} className="animate-spin text-purple-500" />
+    </div>
+  )}
 </div>
           ) : (
             <div className="rounded-2xl flex items-center justify-center mb-5"
