@@ -154,6 +154,11 @@ export default function RestrictedPlayer({
 
   // iframe'ni konteynerni to'liq qoplaydigan (cover) o'lchamga keltirish
   const [coverStyle, setCoverStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
+  // JS-fullscreen (native Fullscreen API mavjud bo'lmagan qurilmalarda) uchun
+  // haqiqiy ko'rinadigan hudud — pinch-zoom qilinganda position:fixed elementlar
+  // (ayniqsa iOS Safari'da) noto'g'ri joylashib, video chetga chiqib ketishi mumkin.
+  // visualViewport shu holatni to'g'ri hisoblab beradi.
+  const [fallbackRect, setFallbackRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
   // ==================================================================
   // MUHIM: videoId (yoki initialWatchedSeconds) o'zgarganda eski videoning
@@ -279,6 +284,40 @@ export default function RestrictedPlayer({
     return () => window.removeEventListener("keydown", handler);
   }, [isFullscreen]);
 
+  // ==================================================================
+  // MUHIM TUZATISH: JS-fullscreen (useNativeFs=false) rejimida
+  // `position: fixed; inset: 0` iOS Safari'da pinch-zoom qilinganda
+  // haqiqiy ekranga to'g'ri moslashmaydi — video qismlari ekrandan
+  // tashqariga chiqib ketadi. `window.visualViewport` esa foydalanuvchi
+  // aynan ko'rib turgan hudud o'lchami va joylashuvini to'g'ri beradi,
+  // shuning uchun fallback holatda konteyner o'lchamini shundan olamiz.
+  // ==================================================================
+  useEffect(() => {
+    if (isFullscreen && !useNativeFs) {
+      function update() {
+        const vv = window.visualViewport;
+        if (vv) {
+          setFallbackRect({ top: vv.offsetTop, left: vv.offsetLeft, width: vv.width, height: vv.height });
+        } else {
+          setFallbackRect({ top: 0, left: 0, width: window.innerWidth, height: window.innerHeight });
+        }
+      }
+      update();
+      window.visualViewport?.addEventListener("resize", update);
+      window.visualViewport?.addEventListener("scroll", update);
+      window.addEventListener("resize", update);
+      window.addEventListener("orientationchange", update);
+      return () => {
+        window.visualViewport?.removeEventListener("resize", update);
+        window.visualViewport?.removeEventListener("scroll", update);
+        window.removeEventListener("resize", update);
+        window.removeEventListener("orientationchange", update);
+      };
+    } else {
+      setFallbackRect(null);
+    }
+  }, [isFullscreen, useNativeFs]);
+
   // Video (16:9) konteynerni to'liq qoplashi uchun o'lcham hisoblash.
   // YouTube iframe hech qachon o'z ichidagi videoni cho'zib bermaydi (letterbox qiladi),
   // shuning uchun iframe'ning o'zini kattalashtirib, ortiqchasini kesib tashlaymiz.
@@ -288,8 +327,12 @@ export default function RestrictedPlayer({
 
     function recompute() {
       if (!el) return;
-      const w = el.clientWidth;
-      const h = el.clientHeight;
+      let w = el.clientWidth;
+      let h = el.clientHeight;
+      if (!useNativeFs && isFullscreen && window.visualViewport) {
+        w = window.visualViewport.width;
+        h = window.visualViewport.height;
+      }
       if (!w || !h) return;
       const videoAspect = 16 / 9;
       const containerAspect = w / h;
@@ -314,12 +357,16 @@ export default function RestrictedPlayer({
     ro.observe(el);
     window.addEventListener("orientationchange", recompute);
     document.addEventListener("fullscreenchange", recompute);
+    window.visualViewport?.addEventListener("resize", recompute);
+    window.visualViewport?.addEventListener("scroll", recompute);
     return () => {
       ro.disconnect();
       window.removeEventListener("orientationchange", recompute);
       document.removeEventListener("fullscreenchange", recompute);
+      window.visualViewport?.removeEventListener("resize", recompute);
+      window.visualViewport?.removeEventListener("scroll", recompute);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, useNativeFs]);
 
   // Ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
   // to'xtatib, pozitsiyani saqlaymiz; qaytib kelganda o'sha joyda pauzada turadi.
@@ -406,15 +453,28 @@ export default function RestrictedPlayer({
       className="relative rounded-2xl overflow-hidden select-none restricted-player-root"
       style={
         isFullscreen
-          ? {
-              position: useNativeFs ? "relative" : "fixed",
-              inset: useNativeFs ? undefined : 0,
-              width: "100%",
-              height: "100%",
-              zIndex: useNativeFs ? undefined : 999999,
-              borderRadius: 0,
-              background: "#000",
-            }
+          ? useNativeFs
+            ? {
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                borderRadius: 0,
+                background: "#000",
+              }
+            : {
+                // JS-fullscreen: visualViewport'dan olingan aniq koordinatalar
+                // bilan joylashtiramiz — pinch-zoom qilinganda ham video
+                // ekrandan chetga chiqib ketmaydi. fallbackRect hali
+                // hisoblanmagan bo'lsa (birinchi render), oddiy inset:0'ga tushamiz.
+                position: "fixed",
+                top: fallbackRect ? `${fallbackRect.top}px` : 0,
+                left: fallbackRect ? `${fallbackRect.left}px` : 0,
+                width: fallbackRect ? `${fallbackRect.width}px` : "100%",
+                height: fallbackRect ? `${fallbackRect.height}px` : "100%",
+                zIndex: 999999,
+                borderRadius: 0,
+                background: "#000",
+              }
           : { position: "relative", aspectRatio: "16/9", background: "#000" }
       }
       onContextMenu={(e) => e.preventDefault()}

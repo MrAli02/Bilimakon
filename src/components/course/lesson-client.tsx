@@ -124,7 +124,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     setSelectedOption(null);
     setRevealed(false);
     setSaving(false);
-    setVideoWatchedFraction(0);
+    setVideoWatchedFraction(initialProgress?.quiz_passed ? 1 : 0);
     setInitialWatchedSeconds(savedSeconds);
     setProgressReady(initialProgress?.watched_seconds != null);
     lastSavedSecondsRef.current = savedSeconds;
@@ -212,6 +212,14 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     })();
     return () => { cancelled = true; };
   }, [supabase, userId, lesson.id, initialProgress?.watched_seconds]);
+
+  // Foydalanuvchi allaqachon tugatgan darsni qayta ko'rishni xohlasa —
+  // video fazasiga qaytaramiz. Dars avval tugallangan bo'lgani uchun
+  // "80% ko'rish" cheklovini qayta talab qilmaymiz — tugma darhol ochiq turadi.
+  function rewatchVideo() {
+    if (initialProgress?.quiz_passed) setVideoWatchedFraction(1);
+    setPhase("video");
+  }
 
   function startQuiz() {
     const shuffled = shuffleArray(questions)
@@ -467,6 +475,11 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
           )}
 
           <div className="flex items-center justify-center gap-3 flex-wrap">
+            {lesson.youtube_video_id && (
+              <button onClick={rewatchVideo} className="btn-secondary">
+                <Play size={16} /> Videoni qayta ko'rish
+              </button>
+            )}
             {!quizPassed && questions.length > 0 && (
               <button onClick={startQuiz} className="btn-secondary">Qayta urinish</button>
             )}
