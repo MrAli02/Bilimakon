@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RotateCcw, RotateCw } from "lucide-react";
 
 // ==================== YouTube IFrame API ====================
@@ -118,6 +118,8 @@ function requestBestQuality(p: YTPlayer | null) {
   } catch {}
 }
 
+const VIDEO_RATIO = 16 / 9;
+
 // ==================== Component ====================
 interface Props {
   videoId: string;
@@ -149,6 +151,10 @@ export default function RestrictedPlayer({
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeFs, setUseNativeFs] = useState(true);
+  // Haqiqiy ekran o'lchami (piksellarda) — CSS vh/vw o'rniga JS orqali
+  // o'lchanadi, chunki mobil brauzerlarda (ayniqsa iOS Safari) 100vh
+  // haqiqiy ko'rinadigan balandlikka to'g'ri kelmaydi.
+  const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
 
   // State va timerlarni tozalash
   useEffect(() => {
@@ -216,7 +222,7 @@ export default function RestrictedPlayer({
     return () => clearInterval(interval);
   }, [ready, duration, onProgress]);
 
-  // Fullscreen va orientation nazorati
+  // Fullscreen qo'llab-quvvatlanishini aniqlash
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -246,8 +252,61 @@ export default function RestrictedPlayer({
     };
   }, []);
 
+  // ==================================================================
+  // MUHIM TUZATISH: Fullscreen holatda ekranning HAQIQIY o'lchamini
+  // (window.visualViewport orqali) kuzatib boramiz. Bunga asoslanib
+  // pastda 16:9 nisbatini saqlagan "quti" hisoblanadi — shu tufayli
+  // istalgan telefon ekranida (qanday nisbatda bo'lishidan qat'iy
+  // nazar) video hech qachon cho'zilmaydi, kesilmaydi va noto'g'ri
+  // joylashmaydi.
+  // ==================================================================
+  useEffect(() => {
+    if (!isFullscreen) return;
+
+    function update() {
+      const vv = typeof window !== "undefined" ? window.visualViewport : null;
+      const w = Math.round(vv?.width ?? window.innerWidth);
+      const h = Math.round(vv?.height ?? window.innerHeight);
+      setViewportSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    }
+
+    update();
+    // orientationchange voqeasi ba'zi brauzerlarda o'lchamni darhol
+    // yangilamaydi, shuning uchun bir necha marta qayta o'lchaymiz.
+    const t1 = setTimeout(update, 100);
+    const t2 = setTimeout(update, 400);
+    const t3 = setTimeout(update, 800);
+
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    window.visualViewport?.addEventListener("resize", update);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, [isFullscreen]);
+
+  // Fullscreen ichida videoning 16:9 nisbatini saqlagan holdagi
+  // aniq piksel o'lchami (letterbox/pillarbox uchun).
+  const fsBox = useMemo(() => {
+    if (!isFullscreen || !viewportSize.w || !viewportSize.h) return null;
+    let w = viewportSize.w;
+    let h = w / VIDEO_RATIO;
+    if (h > viewportSize.h) {
+      h = viewportSize.h;
+      w = h * VIDEO_RATIO;
+    }
+    return { width: Math.round(w), height: Math.round(h) };
+  }, [isFullscreen, viewportSize]);
+
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? "hidden" : "";
+    document.documentElement.style.overflow = isFullscreen ? "hidden" : "";
     const orientation = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void>; unlock?: () => void } }).orientation;
     if (isFullscreen) {
       orientation?.lock?.("landscape").catch(() => {});
@@ -256,6 +315,7 @@ export default function RestrictedPlayer({
     }
     return () => {
       document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
     };
   }, [isFullscreen]);
 
@@ -352,31 +412,53 @@ export default function RestrictedPlayer({
         isFullscreen ? "is-fullscreen" : ""
       }`}
       style={
-        isFullscreen && !useNativeFs
+        isFullscreen
           ? {
-              position: "fixed",
-              top: 0,
-              left: 0,
-              width: "100vw",
-              height: "100vh",
-              zIndex: 999999,
-              borderRadius: 0,
-              background: "#000",
-            }
-          : isFullscreen
-          ? {
+              position: useNativeFs ? "relative" : "fixed",
+              top: useNativeFs ? undefined : 0,
+              left: useNativeFs ? undefined : 0,
               width: "100%",
-              height: "100%",
+              height: useNativeFs
+                ? "100%"
+                : viewportSize.h
+                ? `${viewportSize.h}px`
+                : "100dvh",
+              zIndex: useNativeFs ? undefined : 999999,
               borderRadius: 0,
               background: "#000",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }
-          : { position: "relative", aspectRatio: "16/9", background: "#000" }
+          : { position: "relative", width: "100%", aspectRatio: "16/9", background: "#000" }
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Video Mount Zone */}
-      <div className="yt-mount-zone">
-        <div ref={mountRef} title={title} />
+      {/* Video Mount Zone — fullscreenda 16:9 nisbatini saqlagan
+          aniq o'lchamdagi quti sifatida markazga joylashtiriladi */}
+      <div
+        className="yt-mount-zone"
+        style={
+          isFullscreen && fsBox
+            ? {
+                position: "relative",
+                width: `${fsBox.width}px`,
+                height: `${fsBox.height}px`,
+                overflow: "hidden",
+                background: "#000",
+                flexShrink: 0,
+              }
+            : {
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                overflow: "hidden",
+                background: "#000",
+              }
+        }
+      >
+        <div ref={mountRef} title={title} style={{ width: "100%", height: "100%" }} />
       </div>
 
       {/* Touch / Click Overlay */}
@@ -485,7 +567,6 @@ export default function RestrictedPlayer({
         </div>
       )}
 
-      {/* ABSOLUTE CSS FIX: YouTube inline o'lchamlari ustidan to'liq hukmronlik */}
       <style jsx>{`
         .watermark-float {
           animation: floatWatermark 16s linear infinite;
@@ -499,28 +580,24 @@ export default function RestrictedPlayer({
         }
 
         .yt-mount-zone {
-          position: absolute !important;
-          inset: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
-          overflow: hidden !important;
           background: #000 !important;
         }
 
-        /* 
-          YouTube IFrame API tomonidan qo'yiladigan "width", "height", "top" va "left" 
-          inline stillarini majburan bekor qilib, iframe'ni to'liq markazlashtirish:
+        /*
+          YouTube IFrame API tomonidan iframe'ga qo'yiladigan inline
+          "width"/"height" atributlarini bekor qilib, uni doim o'z
+          konteyneriga (yt-mount-zone) to'liq va nisbatni buzmasdan
+          moslashtiramiz. Konteyner o'lchami allaqachon JS orqali
+          16:9 nisbatida hisoblangani uchun bu yerda faqat 100% fill
+          qilish yetarli — cho'zilish yoki kesilish bo'lmaydi.
         */
         .yt-mount-zone :global(iframe) {
           pointer-events: none !important;
           position: absolute !important;
-          top: 50% !important;
-          left: 50% !important;
-          transform: translate(-50%, -50%) !important;
+          top: 0 !important;
+          left: 0 !important;
           width: 100% !important;
           height: 100% !important;
-          max-width: none !important;
-          max-height: none !important;
           border: 0 !important;
           background: #000 !important;
         }
@@ -528,8 +605,11 @@ export default function RestrictedPlayer({
         :global(.restricted-player-root:fullscreen),
         :global(.restricted-player-root:-webkit-full-screen) {
           width: 100vw !important;
-          height: 100vh !important;
+          height: 100dvh !important;
           background: #000 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
         }
       `}</style>
     </div>
