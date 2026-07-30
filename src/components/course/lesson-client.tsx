@@ -311,6 +311,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
                   title={lesson.title}
                   initialWatchedSeconds={initialWatchedSeconds}
                   onProgress={handleVideoProgress}
+                  allowFreeSeek={!!initialProgress?.quiz_passed}
                   watermarkText={`${profile?.full_name ?? ""} · ${profile?.id?.slice(0, 8) ?? ""}`}
                 />
               ) : (

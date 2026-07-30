@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RotateCcw, RotateCw } from "lucide-react";
 
 // ==================== YouTube IFrame API — minimal type definitions ====================
 interface YTPlayerVars {
@@ -130,6 +130,9 @@ interface Props {
   initialWatchedSeconds?: number;
   watermarkText?: string;
   onProgress?: (watchedFraction: number, watchedSeconds: number) => void;
+  // true bo'lsa — bu dars avval to'liq ko'rilib tugatilgan, shuning uchun
+  // 10s orqaga / 20s oldinga tugmalari ko'rsatiladi va erkin sakrash ochiq bo'ladi.
+  allowFreeSeek?: boolean;
 }
 
 export default function RestrictedPlayer({
@@ -138,6 +141,7 @@ export default function RestrictedPlayer({
   initialWatchedSeconds = 0,
   watermarkText,
   onProgress,
+  allowFreeSeek = false,
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -152,8 +156,6 @@ export default function RestrictedPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeFs, setUseNativeFs] = useState(true);
 
-  // iframe'ni konteynerni to'liq qoplaydigan (cover) o'lchamga keltirish
-  const [coverStyle, setCoverStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
   // JS-fullscreen (native Fullscreen API mavjud bo'lmagan qurilmalarda) uchun
   // haqiqiy ko'rinadigan hudud — pinch-zoom qilinganda position:fixed elementlar
   // (ayniqsa iOS Safari'da) noto'g'ri joylashib, video chetga chiqib ketishi mumkin.
@@ -318,55 +320,12 @@ export default function RestrictedPlayer({
     }
   }, [isFullscreen, useNativeFs]);
 
-  // Video (16:9) konteynerni to'liq qoplashi uchun o'lcham hisoblash.
-  // YouTube iframe hech qachon o'z ichidagi videoni cho'zib bermaydi (letterbox qiladi),
-  // shuning uchun iframe'ning o'zini kattalashtirib, ortiqchasini kesib tashlaymiz.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-
-    function recompute() {
-      if (!el) return;
-      let w = el.clientWidth;
-      let h = el.clientHeight;
-      if (!useNativeFs && isFullscreen && window.visualViewport) {
-        w = window.visualViewport.width;
-        h = window.visualViewport.height;
-      }
-      if (!w || !h) return;
-      const videoAspect = 16 / 9;
-      const containerAspect = w / h;
-      let newW: number, newH: number;
-      if (containerAspect > videoAspect) {
-        newW = w;
-        newH = w / videoAspect;
-      } else {
-        newH = h;
-        newW = h * videoAspect;
-      }
-      setCoverStyle({
-        width: `${newW}px`,
-        height: `${newH}px`,
-        left: `${(w - newW) / 2}px`,
-        top: `${(h - newH) / 2}px`,
-      });
-    }
-
-    recompute();
-    const ro = new ResizeObserver(recompute);
-    ro.observe(el);
-    window.addEventListener("orientationchange", recompute);
-    document.addEventListener("fullscreenchange", recompute);
-    window.visualViewport?.addEventListener("resize", recompute);
-    window.visualViewport?.addEventListener("scroll", recompute);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("orientationchange", recompute);
-      document.removeEventListener("fullscreenchange", recompute);
-      window.visualViewport?.removeEventListener("resize", recompute);
-      window.visualViewport?.removeEventListener("scroll", recompute);
-    };
-  }, [isFullscreen, useNativeFs]);
+  // ESLATMA: avval bu yerda video o'lchamini piksel-piksel hisoblab
+  // "kesib to'ldirish" (cover) logikasi bor edi. U aynan pinch-zoom va
+  // gorizontal burilishda video chetlarining ekrandan chiqib ketishiga
+  // sabab bo'lgan. Endi buning o'rniga pastdagi CSS'dagi
+  // `object-fit: contain` ishlatiladi — brauzerning o'zi, hech qanday
+  // JS hisob-kitobsiz, video hech qachon kesilmasligini kafolatlaydi.
 
   // Ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
   // to'xtatib, pozitsiyani saqlaymiz; qaytib kelganda o'sha joyda pauzada turadi.
@@ -438,6 +397,17 @@ export default function RestrictedPlayer({
     p.seekTo(clamped, true);
   }
 
+  // 10s orqaga / 20s oldinga tugmalari — faqat allowFreeSeek=true bo'lganda
+  // (ya'ni dars avval to'liq ko'rilib tugatilgan bo'lsa) ko'rsatiladi.
+  // Baribir maxWatchedRef'dan oshib ketmasligini kafolatlaymiz.
+  function seekBy(deltaSeconds: number) {
+    const p = playerRef.current;
+    if (!p || !duration) return;
+    const target = Math.max(0, Math.min(duration, current + deltaSeconds));
+    const clamped = target > maxWatchedRef.current ? maxWatchedRef.current : target;
+    p.seekTo(clamped, true);
+  }
+
   function fmt(sec: number) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -479,17 +449,7 @@ export default function RestrictedPlayer({
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div
-        className="absolute inset-0 w-full h-full yt-mount-zone"
-        style={
-          {
-            "--cover-w": coverStyle.width,
-            "--cover-h": coverStyle.height,
-            "--cover-left": coverStyle.left,
-            "--cover-top": coverStyle.top,
-          } as React.CSSProperties
-        }
-      >
+      <div className="absolute inset-0 w-full h-full yt-mount-zone">
         <div ref={mountRef} className="w-full h-full" title={title} />
       </div>
 
@@ -558,6 +518,28 @@ export default function RestrictedPlayer({
             <button onClick={togglePlay} className="hover:opacity-80 transition-opacity" aria-label={playing ? "Pauza" : "Ijro etish"}>
               {playing ? <Pause size={20} /> : <Play size={20} />}
             </button>
+            {allowFreeSeek && (
+              <>
+                <button
+                  onClick={() => seekBy(-10)}
+                  className="relative hover:opacity-80 transition-opacity flex items-center justify-center"
+                  aria-label="10 soniya orqaga"
+                  title="10 soniya orqaga"
+                >
+                  <RotateCcw size={18} />
+                  <span className="absolute text-[8px] font-bold" style={{ top: "52%", left: "50%", transform: "translate(-50%,-50%)" }}>10</span>
+                </button>
+                <button
+                  onClick={() => seekBy(20)}
+                  className="relative hover:opacity-80 transition-opacity flex items-center justify-center"
+                  aria-label="20 soniya oldinga"
+                  title="20 soniya oldinga"
+                >
+                  <RotateCw size={18} />
+                  <span className="absolute text-[8px] font-bold" style={{ top: "52%", left: "50%", transform: "translate(-50%,-50%)" }}>20</span>
+                </button>
+              </>
+            )}
             <button onClick={toggleMute} className="hover:opacity-80 transition-opacity" aria-label={muted ? "Ovozni yoqish" : "Ovozni o'chirish"}>
               {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
@@ -586,11 +568,15 @@ export default function RestrictedPlayer({
         .yt-mount-zone :global(iframe) {
           pointer-events: none !important;
           position: absolute !important;
-          width: var(--cover-w) !important;
-          height: var(--cover-h) !important;
-          left: var(--cover-left) !important;
-          top: var(--cover-top) !important;
+          inset: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
           max-width: none !important;
+          /* Video hech qachon kesilmasin — nisbati saqlanib, konteyner
+             ichiga to'liq sig'diriladi (kerak bo'lsa yupqa qora chiziqlar
+             bilan, lekin video HECH QACHON chetga chiqib ketmaydi/kesilmaydi). */
+          object-fit: contain;
+          background: #000;
         }
         :global(.restricted-player-root:fullscreen) {
           width: 100vw;
