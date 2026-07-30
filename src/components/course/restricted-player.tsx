@@ -141,7 +141,7 @@ export default function RestrictedPlayer({
   const playerRef = useRef<YTPlayer | null>(null);
   const maxWatchedRef = useRef(initialWatchedSeconds);
   const lastTimeRef = useRef(0);
-  
+
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -149,8 +149,8 @@ export default function RestrictedPlayer({
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeFs, setUseNativeFs] = useState(true);
-  const [fallbackRect, setFallbackRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
+  // State va timerlarni tozalash
   useEffect(() => {
     maxWatchedRef.current = initialWatchedSeconds;
     lastTimeRef.current = 0;
@@ -160,6 +160,7 @@ export default function RestrictedPlayer({
     setPlaying(false);
   }, [videoId, initialWatchedSeconds]);
 
+  // YouTube API initialization
   useEffect(() => {
     let destroyed = false;
     loadYouTubeAPI().then(() => {
@@ -197,6 +198,7 @@ export default function RestrictedPlayer({
     };
   }, [videoId]);
 
+  // Progress update
   useEffect(() => {
     if (!ready) return;
     const interval = setInterval(() => {
@@ -214,6 +216,7 @@ export default function RestrictedPlayer({
     return () => clearInterval(interval);
   }, [ready, duration, onProgress]);
 
+  // Fullscreen va orientation nazorati
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -246,7 +249,7 @@ export default function RestrictedPlayer({
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? "hidden" : "";
     const orientation = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void>; unlock?: () => void } }).orientation;
-    if (isFullscreen && currentFsElement()) {
+    if (isFullscreen) {
       orientation?.lock?.("landscape").catch(() => {});
     } else {
       orientation?.unlock?.();
@@ -256,41 +259,7 @@ export default function RestrictedPlayer({
     };
   }, [isFullscreen]);
 
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !currentFsElement()) setIsFullscreen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isFullscreen]);
-
-  useEffect(() => {
-    if (isFullscreen && !useNativeFs) {
-      function update() {
-        const vv = window.visualViewport;
-        if (vv) {
-          setFallbackRect({ top: vv.offsetTop, left: vv.offsetLeft, width: vv.width, height: vv.height });
-        } else {
-          setFallbackRect({ top: 0, left: 0, width: window.innerWidth, height: window.innerHeight });
-        }
-      }
-      update();
-      window.visualViewport?.addEventListener("resize", update);
-      window.visualViewport?.addEventListener("scroll", update);
-      window.addEventListener("resize", update);
-      window.addEventListener("orientationchange", update);
-      return () => {
-        window.visualViewport?.removeEventListener("resize", update);
-        window.visualViewport?.removeEventListener("scroll", update);
-        window.removeEventListener("resize", update);
-        window.removeEventListener("orientationchange", update);
-      };
-    } else {
-      setFallbackRect(null);
-    }
-  }, [isFullscreen, useNativeFs]);
-
+  // Tab fonga o'tganda videoni to'xtatish
   useEffect(() => {
     function handleVisibility() {
       const p = playerRef.current;
@@ -379,37 +348,38 @@ export default function RestrictedPlayer({
   return (
     <div
       ref={wrapRef}
-      className="relative rounded-2xl overflow-hidden select-none restricted-player-root"
+      className={`relative rounded-2xl overflow-hidden select-none restricted-player-root ${
+        isFullscreen ? "is-fullscreen" : ""
+      }`}
       style={
-        isFullscreen
-          ? useNativeFs
-            ? {
-                position: "relative",
-                width: "100%",
-                height: "100%",
-                borderRadius: 0,
-                background: "#000",
-              }
-            : {
-                position: "fixed",
-                top: fallbackRect ? `${fallbackRect.top}px` : 0,
-                left: fallbackRect ? `${fallbackRect.left}px` : 0,
-                width: fallbackRect ? `${fallbackRect.width}px` : "100%",
-                height: fallbackRect ? `${fallbackRect.height}px` : "100%",
-                zIndex: 999999,
-                borderRadius: 0,
-                background: "#000",
-              }
+        isFullscreen && !useNativeFs
+          ? {
+              position: "fixed",
+              top: 0,
+              left: 0,
+              width: "100vw",
+              height: "100vh",
+              zIndex: 999999,
+              borderRadius: 0,
+              background: "#000",
+            }
+          : isFullscreen
+          ? {
+              width: "100%",
+              height: "100%",
+              borderRadius: 0,
+              background: "#000",
+            }
           : { position: "relative", aspectRatio: "16/9", background: "#000" }
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Video mount container */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden yt-mount-zone">
-        <div ref={mountRef} className="w-full h-full" title={title} />
+      {/* Video Mount Zone */}
+      <div className="yt-mount-zone">
+        <div ref={mountRef} title={title} />
       </div>
 
-      {/* Click overlay to toggle play/pause */}
+      {/* Touch / Click Overlay */}
       <div
         className="absolute inset-0"
         onClick={togglePlay}
@@ -417,6 +387,7 @@ export default function RestrictedPlayer({
         style={{ cursor: "pointer", touchAction: "manipulation", zIndex: 5 }}
       />
 
+      {/* Watermark */}
       {watermarkText && (
         <div
           className="absolute pointer-events-none select-none watermark-float"
@@ -435,12 +406,14 @@ export default function RestrictedPlayer({
         </div>
       )}
 
+      {/* Loading Spinner */}
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 6 }}>
           <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
+      {/* Big Play Button on Pause */}
       {ready && !playing && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 6 }}>
           <div
@@ -452,6 +425,7 @@ export default function RestrictedPlayer({
         </div>
       )}
 
+      {/* Custom Player Controls */}
       {ready && (
         <div
           className="absolute bottom-0 left-0 right-0 p-3"
@@ -511,6 +485,7 @@ export default function RestrictedPlayer({
         </div>
       )}
 
+      {/* ABSOLUTE CSS FIX: YouTube inline o'lchamlari ustidan to'liq hukmronlik */}
       <style jsx>{`
         .watermark-float {
           animation: floatWatermark 16s linear infinite;
@@ -522,8 +497,20 @@ export default function RestrictedPlayer({
           75% { top: 60%; left: 15%; }
           100% { top: 10%; left: 5%; }
         }
-        
-        /* Iframe joylashuvini ekranning to'liq markaziga mixlash */
+
+        .yt-mount-zone {
+          position: absolute !important;
+          inset: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          overflow: hidden !important;
+          background: #000 !important;
+        }
+
+        /* 
+          YouTube IFrame API tomonidan qo'yiladigan "width", "height", "top" va "left" 
+          inline stillarini majburan bekor qilib, iframe'ni to'liq markazlashtirish:
+        */
         .yt-mount-zone :global(iframe) {
           pointer-events: none !important;
           position: absolute !important;
@@ -532,15 +519,17 @@ export default function RestrictedPlayer({
           transform: translate(-50%, -50%) !important;
           width: 100% !important;
           height: 100% !important;
-          min-width: 100% !important;
-          min-height: 100% !important;
-          object-fit: contain !important;
-          background: #000;
+          max-width: none !important;
+          max-height: none !important;
+          border: 0 !important;
+          background: #000 !important;
         }
-        
-        :global(.restricted-player-root:fullscreen) {
-          width: 100vw;
-          height: 100vh;
+
+        :global(.restricted-player-root:fullscreen),
+        :global(.restricted-player-root:-webkit-full-screen) {
+          width: 100vw !important;
+          height: 100vh !important;
+          background: #000 !important;
         }
       `}</style>
     </div>
