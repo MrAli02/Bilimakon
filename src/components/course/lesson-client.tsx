@@ -46,29 +46,31 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [videoWatchedFraction, setVideoWatchedFraction] = useState(0);
-  const [watchedSeconds, setWatchedSeconds] = useState(initialProgress?.watched_seconds ?? 0);
   const [initialWatchedSeconds, setInitialWatchedSeconds] = useState(initialProgress?.watched_seconds ?? 0);
   const [progressReady, setProgressReady] = useState(initialProgress?.watched_seconds != null);
   const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
-
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSecondsRef = useRef(initialProgress?.watched_seconds ?? 0);
   const pendingSecondsRef = useRef<number | null>(null);
+  // Joriy darsni kuzatib boradi — Next.js komponentni qayta mount qilmasdan
+  // faqat propslarni yangilashi mumkin, shuning uchun "avvalgi dars"ni bilish kerak.
+  const prevLessonIdRef = useRef(lesson.id);
 
-  // Server-side GREATEST() orqali saqlaydi — race condition va progress
-  // kamayib ketishidan butunlay himoyalangan.
-  const persistWatchedSeconds = useCallback(async (toSave: number) => {
-    if (toSave <= lastSavedSecondsRef.current) return;
-    pendingSecondsRef.current = null;
+  const persistWatchedSeconds = useCallback(async (lessonId: string, toSave: number) => {
     try {
       const { error } = await supabase.rpc("upsert_watched_seconds", {
-        p_lesson_id: lesson.id,
+        p_lesson_id: lessonId,
         p_seconds: toSave,
       });
       if (!error) {
-        lastSavedSecondsRef.current = Math.max(lastSavedSecondsRef.current, toSave);
+        if (lessonId === lesson.id) {
+          lastSavedSecondsRef.current = Math.max(lastSavedSecondsRef.current, toSave);
+          if (pendingSecondsRef.current != null && pendingSecondsRef.current <= lastSavedSecondsRef.current) {
+            pendingSecondsRef.current = null;
+          }
+        }
       } else {
         console.error(error);
       }
@@ -80,50 +82,100 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const handleVideoProgress = useCallback((fraction: number, seconds: number) => {
     setVideoWatchedFraction(fraction);
     const toSave = Math.floor(seconds);
-    setWatchedSeconds(toSave);
     pendingSecondsRef.current = toSave;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      persistWatchedSeconds(toSave);
-    }, 2000);
-  }, [persistWatchedSeconds]);
+      if (toSave > lastSavedSecondsRef.current) {
+        persistWatchedSeconds(lesson.id, toSave);
+      }
+    }, 5000);
+  }, [persistWatchedSeconds, lesson.id]);
 
-  // Uzoq tomosha paytida ham progress muntazam saqlansin — faqat pauzada emas
+  // ==================================================================
+  // MUHIM TUZATISH: dars (lesson.id) o'zgarganda — masalan "Keyingi dars"
+  // tugmasi bosilganda — Next.js bu komponentni qayta mount qilmasligi
+  // mumkin, faqat proplarni yangilaydi. Shu sababli useState orqali
+  // o'rnatilgan boshlang'ich qiymatlar (phase, videoWatchedFraction,
+  // initialWatchedSeconds va h.k.) ESKI darsnikicha qolib ketardi.
+  // Aynan shu xato tufayli: (1) yangi darsga o'tilganda video umuman
+  // ko'rinmay qolardi (phase eski "result" holatida qolgani uchun),
+  // (2) progress/quiz hisob-kitobi noto'g'ri bo'lardi.
+  // Bu yerda darsni "qo'lda" to'liq qayta initsializatsiya qilamiz.
+  // ==================================================================
+  useEffect(() => {
+    if (prevLessonIdRef.current !== lesson.id) {
+      // Eski darsdan hali serverga yozilmagan progress bo'lsa — yo'qotib
+      // qo'ymaslik uchun uni almashtirishdan oldin saqlab qolamiz.
+      if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
+        persistWatchedSeconds(prevLessonIdRef.current, pendingSecondsRef.current);
+      }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      prevLessonIdRef.current = lesson.id;
+    }
+
+    const savedSeconds = initialProgress?.watched_seconds ?? 0;
+    setPhase(initialProgress?.quiz_passed ? "result" : "video");
+    setQuizQuestions([]);
+    setCurrentQ(0);
+    setAnswers({});
+    setSelectedOption(null);
+    setRevealed(false);
+    setSaving(false);
+    setVideoWatchedFraction(0);
+    setInitialWatchedSeconds(savedSeconds);
+    setProgressReady(initialProgress?.watched_seconds != null);
+    lastSavedSecondsRef.current = savedSeconds;
+    pendingSecondsRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson.id]);
+
+  // ESLATMA: video uzluksiz ko'rilayotganda handleVideoProgress har ~400ms'da
+  // chaqiriladi va yuqoridagi 5s debounce'ni doim qayta boshidan ishga tushiradi —
+  // shuning uchun debounce o'zi hech qachon ishga tushmay qoladi. Aynan shu sabab
+  // bu alohida "majburiy saqlash" intervali kerak — u video pauza qilinmasa ham
+  // progress vaqti-vaqti bilan bazaga yozilishini kafolatlaydi.
   useEffect(() => {
     const interval = setInterval(() => {
-      if (pendingSecondsRef.current != null) {
-        persistWatchedSeconds(pendingSecondsRef.current);
+      if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
+        persistWatchedSeconds(lesson.id, pendingSecondsRef.current);
       }
-    }, 8000);
+    }, 15000);
     return () => clearInterval(interval);
-  }, [persistWatchedSeconds]);
+  }, [persistWatchedSeconds, lesson.id]);
 
-  // Component unmount bo'lganda (SPA ichida navigatsiya) pending progressni yozib ulguramiz
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
-        persistWatchedSeconds(pendingSecondsRef.current);
+        persistWatchedSeconds(lesson.id, pendingSecondsRef.current);
       }
     };
-  }, [persistWatchedSeconds]);
+  }, [persistWatchedSeconds, lesson.id]);
 
-  // Tab yashirilganda / sahifa yopilganda kafolatlangan saqlash uchun sendBeacon
   useEffect(() => {
     function flushBeacon() {
       const toSave = pendingSecondsRef.current;
       if (toSave == null || toSave <= lastSavedSecondsRef.current) return;
-      lastSavedSecondsRef.current = toSave;
       pendingSecondsRef.current = null;
       const payload = JSON.stringify({ lessonId: lesson.id, watchedSeconds: toSave });
       const blob = new Blob([payload], { type: "application/json" });
-      if (!navigator.sendBeacon("/api/progress-beacon", blob)) {
-        fetch("/api/progress-beacon", { method: "POST", body: payload, keepalive: true }).catch(() => {});
+      if (!navigator.sendBeacon("/api/progress", blob)) {
+        fetch("/api/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
       }
     }
+
     function onVisibility() {
       if (document.hidden) flushBeacon();
     }
+
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flushBeacon);
     return () => {
@@ -150,7 +202,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         const saved = data?.watched_seconds ?? 0;
         if (saved > 0) {
           setInitialWatchedSeconds(saved);
-          setWatchedSeconds(saved);
           lastSavedSecondsRef.current = saved;
         }
       } catch (e) {
@@ -208,11 +259,11 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         quiz_passed: passed,
         quiz_score: score,
         completed_at: passed ? new Date().toISOString() : null,
-        watched_seconds: watchedSeconds,
       }, { onConflict: "user_id,lesson_id" });
 
       if (passed) {
         toast.success("Dars muvaffaqiyatli bajarildi! 🎉");
+        // Update enrollment progress
         await fetch("/api/progress", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -247,6 +298,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
             <div className="mb-5">
               {progressReady ? (
                 <RestrictedPlayer
+                  key={lesson.id}
                   videoId={lesson.youtube_video_id}
                   title={lesson.title}
                   initialWatchedSeconds={initialWatchedSeconds}
@@ -349,6 +401,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
                 );
               })}
             </div>
+            {/* Static explanation — no AI */}
             {revealed && answers[q.id] !== q.correct_option_id && q.explanation && (
               <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
                 <p className="text-sm font-semibold text-yellow-600 mb-1">💡 Tushuntirish</p>
@@ -394,6 +447,7 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
             {quizPassed ? "Keyingi darsga o'tishingiz mumkin." : "O'tish bali: 60%. Qayta urinib ko'ring."}
           </p>
 
+          {/* Incorrect answers breakdown */}
           {quizQuestions.length > 0 && quizQuestions.some(q => answers[q.id] !== q.correct_option_id) && (
             <div className="card p-5 text-left mb-6 max-h-64 overflow-y-auto">
               <p className="font-bold text-sm mb-3" style={{ color: "var(--text-primary)" }}>Noto'g'ri javoblar:</p>

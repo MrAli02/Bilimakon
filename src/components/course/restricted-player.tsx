@@ -69,7 +69,11 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 function requestFs(el: HTMLElement): Promise<void> | undefined {
-  const anyEl = el as any;
+  const anyEl = el as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void>;
+    mozRequestFullScreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+  };
   if (el.requestFullscreen) return el.requestFullscreen();
   if (anyEl.webkitRequestFullscreen) return anyEl.webkitRequestFullscreen();
   if (anyEl.mozRequestFullScreen) return anyEl.mozRequestFullScreen();
@@ -78,7 +82,11 @@ function requestFs(el: HTMLElement): Promise<void> | undefined {
 }
 
 function exitFs(): Promise<void> | undefined {
-  const doc = document as any;
+  const doc = document as Document & {
+    webkitExitFullscreen?: () => Promise<void>;
+    mozCancelFullScreen?: () => Promise<void>;
+    msExitFullscreen?: () => Promise<void>;
+  };
   if (document.exitFullscreen) return document.exitFullscreen();
   if (doc.webkitExitFullscreen) return doc.webkitExitFullscreen();
   if (doc.mozCancelFullScreen) return doc.mozCancelFullScreen();
@@ -87,7 +95,11 @@ function exitFs(): Promise<void> | undefined {
 }
 
 function currentFsElement(): Element | null {
-  const doc = document as any;
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    mozFullScreenElement?: Element | null;
+    msFullscreenElement?: Element | null;
+  };
   return (
     document.fullscreenElement ||
     doc.webkitFullscreenElement ||
@@ -95,6 +107,20 @@ function currentFsElement(): Element | null {
     doc.msFullscreenElement ||
     null
   );
+}
+
+// Mavjud sifatlar orasidan eng yuqorisini so'raydi (topilmasa hd1080'ga tushadi).
+// YouTube ba'zan bu so'rovni tarmoq holatiga qarab e'tiborsiz qoldirishi mumkin,
+// lekin bu chaqiruv kichik va katta ekranda sifat farqi qolish ehtimolini kamaytiradi.
+function requestBestQuality(p: YTPlayer | null) {
+  if (!p) return;
+  try {
+    const levels = p.getAvailableQualityLevels?.();
+    const best = levels && levels.length > 0 ? levels[0] : "hd1080";
+    p.setPlaybackQuality?.(best);
+  } catch {
+    // sukut bo'yicha e'tiborsiz qoldiramiz — bu faqat qo'shimcha himoya
+  }
 }
 
 // ==================== Component ====================
@@ -130,12 +156,12 @@ export default function RestrictedPlayer({
   const [coverStyle, setCoverStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
 
   // ==================================================================
-  // MUHIM TUZATISH: videoId (yoki initialWatchedSeconds) o'zgarganda
-  // eski videoning maxWatchedRef/lastTimeRef/duration/current/ready
-  // qiymatlari YANGI videoga "sizib o'tib" qolmasligi kerak.
-  // Aynan shu tuzatish bo'lmasa: keyingi videoga o'tilganda progress
-  // eski video davomiyligiga nisbatan hisoblanadi, natijada backendga
-  // noto'g'ri foiz yuboriladi va quiz to'g'ri ochilmaydi.
+  // MUHIM: videoId (yoki initialWatchedSeconds) o'zgarganda eski videoning
+  // maxWatchedRef/lastTimeRef/duration/current/ready qiymatlari YANGI
+  // videoga "sizib o'tib" qolmasligi kerak. Bundan tashqari LessonClient
+  // tomonida <RestrictedPlayer key={lesson.id} .../> ham qo'yilgan —
+  // shunda dars almashganda komponent butunlay qayta yaratiladi va bu
+  // effekt hech qanday eski holatga tayanmaydi. Ikki qatlamli himoya.
   // ==================================================================
   useEffect(() => {
     maxWatchedRef.current = initialWatchedSeconds;
@@ -162,15 +188,12 @@ export default function RestrictedPlayer({
           onReady: (e) => {
             setReady(true);
             setDuration(e.target.getDuration());
-            // Fullscreen/kichik ekranda bir xil sifat ko'rsatilishi uchun
-            // eng yuqori mavjud sifatni so'raymiz (YouTube tarmoqqa qarab
-            // pastroq tanlashi mumkin, lekin bu "forse-low" holatlarni oldini oladi).
-            try {
-              e.target.setPlaybackQuality?.("hd1080");
-            } catch {}
+            requestBestQuality(e.target);
           },
           onStateChange: (e) => {
-            setPlaying(e.data === window.YT?.PlayerState.PLAYING);
+            const isPlaying = e.data === window.YT?.PlayerState.PLAYING;
+            setPlaying(isPlaying);
+            if (isPlaying) requestBestQuality(playerRef.current);
           },
         },
       });
@@ -178,6 +201,7 @@ export default function RestrictedPlayer({
     return () => {
       destroyed = true;
       playerRef.current?.destroy?.();
+      playerRef.current = null;
     };
   }, [videoId]);
 
@@ -202,7 +226,11 @@ export default function RestrictedPlayer({
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const anyEl = el as any;
+    const anyEl = el as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void>;
+      mozRequestFullScreen?: () => Promise<void>;
+      msRequestFullscreen?: () => Promise<void>;
+    };
     const supported = !!(
       el.requestFullscreen || anyEl.webkitRequestFullscreen || anyEl.mozRequestFullScreen || anyEl.msRequestFullscreen
     );
@@ -213,13 +241,9 @@ export default function RestrictedPlayer({
     function onFsChange() {
       const active = currentFsElement() === wrapRef.current;
       setIsFullscreen(active);
-      // Fullscreenga kirganda ham sifatni qayta so'raymiz — ba'zi
-      // brauzerlarda resize paytida YouTube pastroq sifatga tushib qolishi mumkin.
-      if (active) {
-        try {
-          playerRef.current?.setPlaybackQuality?.("hd1080");
-        } catch {}
-      }
+      // Fullscreenga kirganda sifatni qayta so'raymiz — ba'zi brauzerlarda
+      // resize paytida YouTube pastroq sifatga tushib qolishi mumkin.
+      if (active) requestBestQuality(playerRef.current);
     }
     document.addEventListener("fullscreenchange", onFsChange);
     document.addEventListener("webkitfullscreenchange", onFsChange);
@@ -235,7 +259,7 @@ export default function RestrictedPlayer({
 
   useEffect(() => {
     document.body.style.overflow = isFullscreen ? "hidden" : "";
-    const orientation = (screen as any).orientation;
+    const orientation = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void>; unlock?: () => void } }).orientation;
     if (isFullscreen && currentFsElement()) {
       orientation?.lock?.("landscape").catch(() => {});
     } else {

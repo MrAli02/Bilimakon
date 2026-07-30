@@ -11,54 +11,78 @@ export async function POST(req: NextRequest) {
     const { courseId, lessonId, watchedSeconds, isCompleted } = body;
     if (!lessonId) return NextResponse.json({ error: "lessonId required" }, { status: 400 });
 
-    // Faqat kelgan maydonlarni yozamiz — yo'q maydon eski qiymatni buzmaydi
+    // Faqat so'rovda haqiqatan kelgan maydonlarni yozamiz.
+    // MUHIM: avvalgi versiyada is_completed har doim yozilar edi
+    // (kelmasa ham `isCompleted ?? false` orqali FALSE bo'lib qolardi).
+    // Sahifadan chiqishdagi beacon so'rovi ("use-effect"dagi flushBeacon,
+    // pagehide/visibilitychange orqali) faqat { lessonId, watchedSeconds }
+    // yuboradi, isCompleted umuman yubormaydi. Shu sabab foydalanuvchi
+    // darsni tugatib (is_completed: true) keyingi darsga o'tayotganda,
+    // beacon so'rovi o'sha "tugatilgan" darsni FALSE holatiga qaytarib
+    // qo'yardi — aynan shu "oldingi modul videosi yo'qolib qolgan" kabi
+    // ko'rinadigan xatoning bir manbai edi.
     const upsertData: Record<string, unknown> = {
       user_id: user.id,
       lesson_id: lessonId,
     };
 
-    if (typeof watchedSeconds === "number") {
-      upsertData.watched_seconds = watchedSeconds;
+    if (typeof watchedSeconds === "number" && Number.isFinite(watchedSeconds)) {
+      upsertData.watched_seconds = Math.max(0, Math.floor(watchedSeconds));
     }
 
-    // MUHIM: is_completed faqat aniq true/false kelganda yoziladi.
-    // Beacon so'rovida (sahifadan chiqishda) bu maydon yuborilmaydi,
-    // shuning uchun eski "tugatilgan" holat endi FALSEga aylanib qolmaydi.
     if (typeof isCompleted === "boolean") {
       upsertData.is_completed = isCompleted;
       upsertData.completed_at = isCompleted ? new Date().toISOString() : null;
     }
 
-    await supabase
+    // Agar hech qanday real maydon kelmagan bo'lsa (faqat user_id/lesson_id),
+    // bekorga upsert qilib DB'ga bo'sh yozuv tashlamaymiz.
+    if (Object.keys(upsertData).length <= 2) {
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    const { error: upsertError } = await supabase
       .from("lesson_progress")
       .upsert(upsertData, { onConflict: "user_id,lesson_id" });
 
-    // Kurs progressini faqat dars haqiqatan tugatilganda qayta hisoblaymiz
+    if (upsertError) {
+      return NextResponse.json({ error: upsertError.message }, { status: 500 });
+    }
+
+    // Kurs progressini faqat dars HAQIQATAN tugatilgan holatda qayta hisoblaymiz.
     if (courseId && isCompleted === true) {
-      const { data: allLessons } = await supabase
+      const { data: allLessons, error: lessonsError } = await supabase
         .from("lessons")
         .select("id, modules!inner(course_id)")
         .eq("modules.course_id", courseId)
         .eq("is_published", true);
 
-      if (allLessons && allLessons.length > 0) {
+      if (lessonsError) {
+        console.error(lessonsError);
+      } else if (allLessons && allLessons.length > 0) {
         const lessonIds = allLessons.map((l: { id: string }) => l.id);
-        const { count: doneCount } = await supabase
+        const { count: doneCount, error: countError } = await supabase
           .from("lesson_progress")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
           .eq("is_completed", true)
           .in("lesson_id", lessonIds);
 
-        const pct = Math.round(((doneCount ?? 0) / allLessons.length) * 100);
-        await supabase
-          .from("enrollments")
-          .update({
-            progress_percentage: pct,
-            completed_at: pct === 100 ? new Date().toISOString() : null,
-          })
-          .eq("user_id", user.id)
-          .eq("course_id", courseId);
+        if (countError) {
+          console.error(countError);
+        } else {
+          const pct = Math.round(((doneCount ?? 0) / allLessons.length) * 100);
+          const { error: enrollError } = await supabase
+            .from("enrollments")
+            .update({
+              progress_percentage: pct,
+              completed_at: pct === 100 ? new Date().toISOString() : null,
+            })
+            .eq("user_id", user.id)
+            .eq("course_id", courseId);
+
+          if (enrollError) console.error(enrollError);
+        }
       }
     }
 
