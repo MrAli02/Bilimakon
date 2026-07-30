@@ -161,6 +161,13 @@ export default function RestrictedPlayer({
   // (ayniqsa iOS Safari'da) noto'g'ri joylashib, video chetga chiqib ketishi mumkin.
   // visualViewport shu holatni to'g'ri hisoblab beradi.
   const [fallbackRect, setFallbackRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  // Video (16:9) konteyner ichiga nisbatini buzmasdan TO'LIQ sig'dirish uchun
+  // piksel o'lchamlar. object-fit:contain ba'zi Android brauzerlarida (masalan
+  // Samsung Chrome) iframe uchun to'g'ri ishlamasligi aniqlandi (video juda
+  // kichrayib, YouTube'ning standart 640x390 o'lchamiga tushib qolgan edi).
+  // Shuning uchun bu yerda JS orqali aniq piksel hisoblanadi — bu barcha
+  // brauzerlarda bir xil, ishonchli ishlaydi.
+  const [fitStyle, setFitStyle] = useState({ width: "100%", height: "100%", left: "0px", top: "0px" });
 
   // ==================================================================
   // MUHIM: videoId (yoki initialWatchedSeconds) o'zgarganda eski videoning
@@ -320,12 +327,61 @@ export default function RestrictedPlayer({
     }
   }, [isFullscreen, useNativeFs]);
 
-  // ESLATMA: avval bu yerda video o'lchamini piksel-piksel hisoblab
-  // "kesib to'ldirish" (cover) logikasi bor edi. U aynan pinch-zoom va
-  // gorizontal burilishda video chetlarining ekrandan chiqib ketishiga
-  // sabab bo'lgan. Endi buning o'rniga pastdagi CSS'dagi
-  // `object-fit: contain` ishlatiladi — brauzerning o'zi, hech qanday
-  // JS hisob-kitobsiz, video hech qachon kesilmasligini kafolatlaydi.
+  // Video (16:9) konteyner ICHIGA nisbatini buzmasdan to'liq sig'dirish
+  // uchun piksel o'lchamlarni hisoblaymiz (kesish emas, faqat "contain").
+  // JS orqali aniq piksel berish — barcha brauzerlarda (jumladan Samsung
+  // Chrome kabi object-fit'ni iframe uchun to'liq qo'llamaydigan
+  // brauzerlarda ham) bir xil, ishonchli natija beradi.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+
+    function recompute() {
+      if (!el) return;
+      let w = el.clientWidth;
+      let h = el.clientHeight;
+      if (!useNativeFs && isFullscreen && window.visualViewport) {
+        w = window.visualViewport.width;
+        h = window.visualViewport.height;
+      }
+      if (!w || !h) return;
+      const videoAspect = 16 / 9;
+      const containerAspect = w / h;
+      let newW: number, newH: number;
+      if (containerAspect > videoAspect) {
+        // Konteyner videoga nisbatan kengroq — balandlikka moslaymiz,
+        // yon tomonlarda qora chiziq qoladi (video hech qachon kesilmaydi).
+        newH = h;
+        newW = h * videoAspect;
+      } else {
+        // Konteyner videoga nisbatan torroq/balandroq — kenglikka moslaymiz,
+        // tepa-pastda qora chiziq qoladi.
+        newW = w;
+        newH = w / videoAspect;
+      }
+      setFitStyle({
+        width: `${newW}px`,
+        height: `${newH}px`,
+        left: `${(w - newW) / 2}px`,
+        top: `${(h - newH) / 2}px`,
+      });
+    }
+
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    window.addEventListener("orientationchange", recompute);
+    document.addEventListener("fullscreenchange", recompute);
+    window.visualViewport?.addEventListener("resize", recompute);
+    window.visualViewport?.addEventListener("scroll", recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("orientationchange", recompute);
+      document.removeEventListener("fullscreenchange", recompute);
+      window.visualViewport?.removeEventListener("resize", recompute);
+      window.visualViewport?.removeEventListener("scroll", recompute);
+    };
+  }, [isFullscreen, useNativeFs]);
 
   // Ilova fonga o'tsa (boshqa oyna, qo'ng'iroq, ekran o'chishi) videoni
   // to'xtatib, pozitsiyani saqlaymiz; qaytib kelganda o'sha joyda pauzada turadi.
@@ -389,23 +445,29 @@ export default function RestrictedPlayer({
 
   // Oldinga (hali ko'rilmagan joyga) sakrashni bloklaydi — faqat orqaga
   // va allaqachon ko'rilgan joygacha oldinga qaytarish mumkin.
+  // MUHIM: allowFreeSeek=true bo'lsa (dars avval TO'LIQ tugatilgan) —
+  // bu cheklov butunlay olib tashlanadi, video ichida istalgan joyga
+  // erkin o'tish mumkin (video 80% ko'rilganda quiz ochilgani uchun
+  // maxWatchedRef odatda to'liq davomiylikkacha yetmagan bo'lishi mumkin edi —
+  // aynan shu sabab tugallangan darslarda ham oxirgi qism "yopiq" bo'lib qolardi).
   function seekTo(fraction: number) {
     const p = playerRef.current;
     if (!p || !duration) return;
     const target = fraction * duration;
-    const clamped = target > maxWatchedRef.current ? maxWatchedRef.current : target;
+    const clamped = allowFreeSeek ? target : (target > maxWatchedRef.current ? maxWatchedRef.current : target);
     p.seekTo(clamped, true);
+    if (clamped > maxWatchedRef.current) maxWatchedRef.current = clamped;
   }
 
   // 10s orqaga / 20s oldinga tugmalari — faqat allowFreeSeek=true bo'lganda
-  // (ya'ni dars avval to'liq ko'rilib tugatilgan bo'lsa) ko'rsatiladi.
-  // Baribir maxWatchedRef'dan oshib ketmasligini kafolatlaymiz.
+  // ko'rsatiladi, shuning uchun bu yerda ham cheklovsiz sakraydi.
   function seekBy(deltaSeconds: number) {
     const p = playerRef.current;
     if (!p || !duration) return;
     const target = Math.max(0, Math.min(duration, current + deltaSeconds));
-    const clamped = target > maxWatchedRef.current ? maxWatchedRef.current : target;
+    const clamped = allowFreeSeek ? target : (target > maxWatchedRef.current ? maxWatchedRef.current : target);
     p.seekTo(clamped, true);
+    if (clamped > maxWatchedRef.current) maxWatchedRef.current = clamped;
   }
 
   function fmt(sec: number) {
@@ -449,7 +511,17 @@ export default function RestrictedPlayer({
       }
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="absolute inset-0 w-full h-full yt-mount-zone">
+      <div
+        className="absolute inset-0 w-full h-full yt-mount-zone"
+        style={
+          {
+            "--fit-w": fitStyle.width,
+            "--fit-h": fitStyle.height,
+            "--fit-left": fitStyle.left,
+            "--fit-top": fitStyle.top,
+          } as React.CSSProperties
+        }
+      >
         <div ref={mountRef} className="w-full h-full" title={title} />
       </div>
 
@@ -568,14 +640,16 @@ export default function RestrictedPlayer({
         .yt-mount-zone :global(iframe) {
           pointer-events: none !important;
           position: absolute !important;
-          inset: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
+          /* object-fit:contain ba'zi Android brauzerlarda (Samsung Chrome)
+             iframe uchun to'g'ri ishlamaganligi sababli, aniq piksel
+             o'lchamlar JS orqali beriladi (yuqoridagi useEffect) — bu barcha
+             brauzerlarda bir xil, ishonchli ishlaydi va video HECH QACHON
+             na kesilmaydi, na kichrayib qolmaydi. */
+          width: var(--fit-w) !important;
+          height: var(--fit-h) !important;
+          left: var(--fit-left) !important;
+          top: var(--fit-top) !important;
           max-width: none !important;
-          /* Video hech qachon kesilmasin — nisbati saqlanib, konteyner
-             ichiga to'liq sig'diriladi (kerak bo'lsa yupqa qora chiziqlar
-             bilan, lekin video HECH QACHON chetga chiqib ketmaydi/kesilmaydi). */
-          object-fit: contain;
           background: #000;
         }
         :global(.restricted-player-root:fullscreen) {
