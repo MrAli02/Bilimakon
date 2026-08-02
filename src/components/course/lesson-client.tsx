@@ -8,6 +8,7 @@ import RestrictedPlayer from "./restricted-player";
 import { shuffleArray } from "@/lib/utils";
 import toast from "react-hot-toast";
 import type { Question } from "@/types";
+import CodeEditor from "@/components/CodeEditor";
 
 interface LessonInfo {
   id: string;
@@ -15,6 +16,7 @@ interface LessonInfo {
   title: string;
   description?: string;
   youtube_video_id?: string;
+  has_code_exercise?: boolean;
 }
 
 interface ProfileInfo {
@@ -337,7 +339,15 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
               <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{lesson.description}</p>
             </div>
           )}
-
+          {/* KOD MASHQI - faqat shu dars uchun yoqilgan bo'lsa chiqadi */}
+          {lesson.has_code_exercise && (
+            <div className="mb-5">
+              <h2 className="font-bold mb-3 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+                💻 Kod mashqi
+              </h2>
+              <CodeEditor lessonId={lesson.id} />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <Link href={`/courses/${courseId}`} className="btn-secondary">
               <ChevronLeft size={16} /> Ortga

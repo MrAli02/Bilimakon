@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 interface Lesson {
   id: string; title: string; youtube_video_id?: string;
   duration_seconds?: number; order_index: number; is_published: boolean;
+  has_code_exercise?: boolean;
 }
 interface Module {
   id: string; title: string; description?: string;
@@ -41,7 +42,7 @@ export default function AdminCourseModulesPage() {
   const [previewLesson, setPreviewLesson] = useState<Lesson | null>(null);
   const [editLesson, setEditLesson] = useState<Lesson | null>(null);
   const [savingLesson, setSavingLesson] = useState(false);
-  const [lForm, setLForm] = useState({ title: "", description: "", youtube_video_id: "", duration_seconds: "", order_index: 1 });
+  const [lForm, setLForm] = useState({ title: "", description: "", youtube_video_id: "", duration_seconds: "", order_index: 1, has_code_exercise: false });
 
   const supabase = createClient();
 
@@ -110,6 +111,7 @@ export default function AdminCourseModulesPage() {
         youtube_video_id: lForm.youtube_video_id ? extractYtId(lForm.youtube_video_id) : null,
         duration_seconds: lForm.duration_seconds ? Number(lForm.duration_seconds) : null,
         order_index: lForm.order_index,
+        has_code_exercise: lForm.has_code_exercise,
       };
       if (editLesson) {
         await supabase.from("lessons").update(payload).eq("id", editLesson.id);
@@ -125,7 +127,7 @@ export default function AdminCourseModulesPage() {
 
   function resetLessonForm() {
     setShowLessonForm(null); setEditLesson(null);
-    setLForm({ title: "", description: "", youtube_video_id: "", duration_seconds: "", order_index: 1 });
+    setLForm({ title: "", description: "", youtube_video_id: "", duration_seconds: "", order_index: 1, has_code_exercise: false });
   }
 
   function startEditLesson(lesson: Lesson, moduleId: string) {
@@ -135,6 +137,7 @@ export default function AdminCourseModulesPage() {
       youtube_video_id: lesson.youtube_video_id ?? "",
       duration_seconds: lesson.duration_seconds ? String(lesson.duration_seconds) : "",
       order_index: lesson.order_index,
+      has_code_exercise: lesson.has_code_exercise ?? false,
     });
     setShowLessonForm(moduleId);
   }
@@ -289,6 +292,15 @@ export default function AdminCourseModulesPage() {
                     onChange={e => setLForm({ ...lForm, order_index: Number(e.target.value) })} />
                 </div>
               </div>
+              <label className="flex items-center gap-2.5 p-3 rounded-xl cursor-pointer"
+                style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                <input type="checkbox" checked={lForm.has_code_exercise}
+                  onChange={e => setLForm({ ...lForm, has_code_exercise: e.target.checked })}
+                  className="w-4 h-4" />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  💻 Bu darsda kod mashqi bo&apos;lsin
+                </span>
+              </label>
             </div>
             <div className="flex gap-3 mt-5">
               <button onClick={() => saveLesson(showLessonForm)} disabled={savingLesson} className="btn-primary flex-1">

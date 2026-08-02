@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Plus, HelpCircle, Trash2, Loader2, X, Check, Search, Upload, Download, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Plus, HelpCircle, Trash2, Loader2, X, Check, Search, Upload, Download, FileSpreadsheet, AlertCircle, BookOpen, Layers } from "lucide-react";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
@@ -10,19 +10,23 @@ interface Option { id: string; text: string; }
 interface Question {
   id: string; text: string; options: Option[];
   correct_option_id: string; explanation?: string;
-  difficulty: string; subject: string; created_at: string; lesson_id?: string;
+  difficulty: string; subject: string; created_at: string;
+  lesson_id?: string; module_id?: string;
 }
 
 const SUBJECTS = ["Informatika","Matematika","Fizika","Kimyo","Biologiya","Ona tili","Tarix","Ingliz tili","Kasbiy standart","Pedagogik mahorat"];
+// Faqat platformada haqiqatan ishlatiladigan 3 asosiy fan tab uchun (qolganlari "Boshqa" ostida ko'rinadi agar mavjud bo'lsa)
+const MAIN_SUBJECTS = ["Informatika", "Kasbiy standart", "Pedagogik mahorat"];
+
 function makeId() { return Math.random().toString(36).slice(2,8); }
 
 export default function AdminQuestionsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   interface LessonOption { id: string; title: string; module_title: string; course_title: string; }
-const [lessons, setLessons] = useState<LessonOption[]>([]);
-interface ModuleOption { id: string; title: string; course_title: string; }
-const [modules, setModules] = useState<ModuleOption[]>([]);
-interface ExcelRow {
+  const [lessons, setLessons] = useState<LessonOption[]>([]);
+  interface ModuleOption { id: string; title: string; course_title: string; }
+  const [modules, setModules] = useState<ModuleOption[]>([]);
+  interface ExcelRow {
     row: number; text: string; options: Option[]; correct_option_id: string;
     subject: string; difficulty: string; explanation?: string; lesson_id?: string; error?: string;
   }
@@ -35,9 +39,11 @@ interface ExcelRow {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState({ subject: "", difficulty: "" });
-const [form, setForm] = useState({
-text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",    options: [
+  const [activeTab, setActiveTab] = useState<string>("Barchasi");
+  const [filter, setFilter] = useState({ difficulty: "", scope: "" }); // scope: "" | "module" | "lesson" | "general"
+  const [form, setForm] = useState({
+    text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",
+    options: [
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
       { id: makeId(), text: "" }, { id: makeId(), text: "" },
     ],
@@ -48,12 +54,12 @@ text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_
   const fetchQuestions = useCallback(async () => {
     setLoading(true);
     let q = supabase.from("questions").select("*").order("created_at", { ascending: false });
-    if (filter.subject) q = q.eq("subject", filter.subject);
     if (filter.difficulty) q = q.eq("difficulty", filter.difficulty);
-    const { data } = await q.limit(100);
+    const { data } = await q.limit(300);
     setQuestions(data ?? []);
     setLoading(false);
   }, [filter, supabase]);
+
   const fetchLessons = useCallback(async () => {
     const { data } = await supabase
       .from("lessons")
@@ -67,7 +73,8 @@ text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_
     }));
     setLessons(formatted);
   }, [supabase]);
-const fetchModules = useCallback(async () => {
+
+  const fetchModules = useCallback(async () => {
     const { data } = await supabase
       .from("modules")
       .select("id, title, courses(title)")
@@ -79,20 +86,41 @@ const fetchModules = useCallback(async () => {
     }));
     setModules(formatted);
   }, [supabase]);
-  useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
-useEffect(() => { fetchLessons(); }, [fetchLessons]);
-useEffect(() => { fetchModules(); }, [fetchModules]);
 
-  const filtered = questions.filter(q =>
-    !search || q.text.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
+  useEffect(() => { fetchLessons(); }, [fetchLessons]);
+  useEffect(() => { fetchModules(); }, [fetchModules]);
+
+  const lessonMap = useMemo(() => Object.fromEntries(lessons.map(l => [l.id, l])), [lessons]);
+  const moduleMap = useMemo(() => Object.fromEntries(modules.map(m => [m.id, m])), [modules]);
+
+  // Fan bo'yicha savollar soni — tablarda ko'rsatish uchun
+  const countsBySubject = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const s of SUBJECTS) c[s] = questions.filter(q => q.subject === s).length;
+    return c;
+  }, [questions]);
+
+  const otherSubjectsUsed = useMemo(
+    () => SUBJECTS.filter(s => !MAIN_SUBJECTS.includes(s) && countsBySubject[s] > 0),
+    [countsBySubject]
   );
+
+  const filtered = useMemo(() => questions.filter(q => {
+    if (activeTab !== "Barchasi" && q.subject !== activeTab) return false;
+    if (filter.scope === "module" && !q.module_id) return false;
+    if (filter.scope === "lesson" && !q.lesson_id) return false;
+    if (filter.scope === "general" && (q.module_id || q.lesson_id)) return false;
+    if (search && !q.text.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }), [questions, activeTab, filter.scope, search]);
 
   async function handleSave() {
     if (!form.text.trim()) { toast.error("Savol matnini kiriting"); return; }
     const filled = form.options.filter(o => o.text.trim());
     if (filled.length < 2) { toast.error("Kamida 2 ta variant kiriting"); return; }
     if (!form.correct_option_id) { toast.error("To'g'ri javobni belgilang (✓)"); return; }
-setSaving(true);
+    setSaving(true);
     try {
       const payload = {
         text: form.text, subject: form.subject, difficulty: form.difficulty,
@@ -115,30 +143,34 @@ setSaving(true);
     } catch (e: any) { toast.error(e.message ?? "Xatolik"); }
     finally { setSaving(false); }
   }
-function startEditQuestion(q: Question) {
+
+  function startEditQuestion(q: Question) {
     setEditQuestion(q);
     setForm({
       text: q.text, subject: q.subject, difficulty: q.difficulty,
-      explanation: q.explanation ?? "", lesson_id: (q as any).lesson_id ?? "", module_id: (q as any).module_id ?? "",
+      explanation: q.explanation ?? "", lesson_id: q.lesson_id ?? "", module_id: q.module_id ?? "",
       options: q.options.length >= 4 ? q.options : [...q.options, ...Array(4 - q.options.length).fill(0).map(() => ({ id: makeId(), text: "" }))],
       correct_option_id: q.correct_option_id,
     });
     setShowForm(true);
   }
+
   async function deleteQuestion(id: string) {
     if (!confirm("Savolni o'chirasizmi?")) return;
     await supabase.from("questions").delete().eq("id", id);
     toast.success("O'chirildi"); fetchQuestions();
   }
-function resetForm() {
+
+  function resetForm() {
     setShowForm(false);
     setEditQuestion(null);
     setForm({
-      text: "", subject: "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",
+      text: "", subject: activeTab !== "Barchasi" ? activeTab : "Informatika", difficulty: "medium", explanation: "", lesson_id: "", module_id: "",
       options: [{ id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }, { id: makeId(), text: "" }],
       correct_option_id: "",
     });
   }
+
   function downloadTemplate() {
     const wsData = [
       ["Fan", "Kurs", "Modul", "Dars", "Savol", "A", "B", "C", "D", "Togri_javob", "Daraja", "Tushuntirish"],
@@ -238,9 +270,18 @@ function resetForm() {
       setExcelUploading(false);
     }
   }
+
+  const tabs = [
+    { key: "Barchasi", label: "Barchasi", count: questions.length },
+    ...MAIN_SUBJECTS.map(s => ({ key: s, label: s, count: countsBySubject[s] })),
+    ...(otherSubjectsUsed.length > 0
+      ? otherSubjectsUsed.map(s => ({ key: s, label: s, count: countsBySubject[s] }))
+      : []),
+  ];
+
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Savollar banki</h1>
           <p style={{ color: "var(--text-secondary)" }}>Test va imtihon savollari</p>
@@ -252,28 +293,36 @@ function resetForm() {
           <button onClick={() => setShowExcelModal(true)} className="btn-secondary text-sm">
             <Upload size={16} /> Excel yuklash
           </button>
-          <button onClick={() => setShowForm(true)} className="btn-primary">
+          <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary">
             <Plus size={18} /> Savol qo&apos;shish
           </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {[
-          { label: "Jami savollar", value: questions.length, color: "rgba(168,85,247,0.1)", ic: "#a855f7" },
-          { label: "Informatika", value: questions.filter(q => q.subject === "Informatika").length, color: "rgba(59,130,246,0.1)", ic: "#3b82f6" },
-          { label: "Oson savollar", value: questions.filter(q => q.difficulty === "easy").length, color: "rgba(16,185,129,0.1)", ic: "#10b981" },
-        ].map(s => (
-          <div key={s.label} className="card p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: s.color }}>
-              <HelpCircle size={18} style={{ color: s.ic }} />
-            </div>
-            <div>
-              <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{s.value}</div>
-              <div className="text-xs" style={{ color: "var(--text-secondary)" }}>{s.label}</div>
-            </div>
-          </div>
+      {/* Subject tabs — bu asosiy tartiblovchi element */}
+      <div className="flex flex-wrap gap-2 mb-5 pb-1">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className="px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+            style={{
+              background: activeTab === t.key ? "linear-gradient(135deg,#a855f7,#7c3aed)" : "var(--bg-secondary)",
+              color: activeTab === t.key ? "white" : "var(--text-secondary)",
+              boxShadow: activeTab === t.key ? "0 4px 12px rgba(124,58,237,0.25)" : "none",
+            }}
+          >
+            {t.label}
+            <span
+              className="text-xs px-1.5 py-0.5 rounded-md font-bold"
+              style={{
+                background: activeTab === t.key ? "rgba(255,255,255,0.25)" : "var(--bg-tertiary)",
+                color: activeTab === t.key ? "white" : "var(--text-tertiary)",
+              }}
+            >
+              {t.count}
+            </span>
+          </button>
         ))}
       </div>
 
@@ -284,10 +333,12 @@ function resetForm() {
           <input className="input pl-9 w-full text-sm" placeholder="Savol qidirish..."
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <select className="input w-auto text-sm" value={filter.subject}
-          onChange={e => setFilter({ ...filter, subject: e.target.value })}>
-          <option value="">Barcha fanlar</option>
-          {SUBJECTS.map(s => <option key={s}>{s}</option>)}
+        <select className="input w-auto text-sm" value={filter.scope}
+          onChange={e => setFilter({ ...filter, scope: e.target.value })}>
+          <option value="">Qayerga bog'langan — barchasi</option>
+          <option value="module">Faqat modul imtihoniga bog'langan</option>
+          <option value="lesson">Faqat darsga bog'langan</option>
+          <option value="general">Bog'lanmagan (umumiy / simulyator uchun)</option>
         </select>
         <select className="input w-auto text-sm" value={filter.difficulty}
           onChange={e => setFilter({ ...filter, difficulty: e.target.value })}>
@@ -311,57 +362,88 @@ function resetForm() {
           <div className="p-12 text-center">
             <HelpCircle size={36} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
             <p className="mb-4" style={{ color: "var(--text-secondary)" }}>Savollar yo&apos;q</p>
-            <button onClick={() => setShowForm(true)} className="btn-primary text-sm">Savol qo&apos;shish</button>
+            <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary text-sm">Savol qo&apos;shish</button>
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: "var(--border)" }}>
-            {filtered.map((q) => (
-              <div key={q.id} className="p-4 hover:bg-[var(--bg-secondary)] transition-colors">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm mb-2 leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                      {q.text}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {q.options?.map((opt: Option) => (
-                        <span key={opt.id}
-                          className={`text-xs px-2.5 py-1 rounded-lg font-medium ${opt.id === q.correct_option_id ? "bg-green-100 dark:bg-green-900 text-green-700" : ""}`}
-                          style={opt.id !== q.correct_option_id ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : {}}>
-                          {opt.id === q.correct_option_id && "✓ "}{opt.text}
-                        </span>
-                      ))}
-                    </div>
-                    {q.explanation && (
-                      <p className="text-xs italic" style={{ color: "var(--text-tertiary)" }}>
-                        💡 {q.explanation}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 mt-2">
+            {filtered.map((q) => {
+              const lesson = q.lesson_id ? lessonMap[q.lesson_id] : null;
+              const mod = q.module_id ? moduleMap[q.module_id] : null;
+              return (
+                <div key={q.id} className="p-4 hover:bg-[var(--bg-secondary)] transition-colors">
+                  {/* Top meta row — fan, daraja, qayerga bog'langani birinchi bo'lib ko'rinadi */}
+                  <div className="flex items-start justify-between gap-3 mb-2.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="badge-blue text-xs">{q.subject}</span>
                       <span className={`badge text-xs ${q.difficulty === "easy" ? "badge-green" : q.difficulty === "hard" ? "badge-red" : "badge-yellow"}`}>
                         {q.difficulty === "easy" ? "Oson" : q.difficulty === "hard" ? "Qiyin" : "O'rta"}
                       </span>
+                      {mod ? (
+                        <span className="text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1"
+                          style={{ background: "rgba(168,85,247,0.1)", color: "#a855f7" }}>
+                          <Layers size={11} /> Modul: {mod.course_title} / {mod.title}
+                        </span>
+                      ) : lesson ? (
+                        <span className="text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1"
+                          style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}>
+                          <BookOpen size={11} /> Dars: {lesson.module_title} / {lesson.title}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2.5 py-1 rounded-lg font-medium"
+                          style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}>
+                          Umumiy (simulyator uchun)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button onClick={() => startEditQuestion(q)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors text-sm"
+                        style={{ color: "var(--text-secondary)" }}>
+                        ✏️
+                      </button>
+                      <button onClick={() => deleteQuestion(q.id)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 text-red-500 transition-colors">
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
-<div className="flex gap-1 flex-shrink-0">
-                    <button onClick={() => startEditQuestion(q)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
-                      style={{ color: "var(--text-secondary)" }}>
-                      <FileSpreadsheet size={15} style={{ display: "none" }} />
-                      ✏️
-                    </button>
-                    <button onClick={() => deleteQuestion(q.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 text-red-500 transition-colors">
-                      <Trash2 size={15} />
-                    </button>
+
+                  {/* Savol matni — eng ko'zga tashlanadigan qism */}
+                  <p className="font-semibold text-sm mb-3 leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                    {q.text}
+                  </p>
+
+                  {/* Variantlar — 2 ustunli tartibli grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-2">
+                    {q.options?.map((opt: Option, i: number) => {
+                      const isCorrect = opt.id === q.correct_option_id;
+                      return (
+                        <div key={opt.id}
+                          className="text-xs px-3 py-2 rounded-lg font-medium flex items-center gap-2"
+                          style={isCorrect
+                            ? { background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)" }
+                            : { background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid transparent" }}>
+                          <span className="w-4 flex-shrink-0 font-bold opacity-60">{["A","B","C","D"][i]}</span>
+                          <span className="flex-1">{opt.text}</span>
+                          {isCorrect && <Check size={13} className="flex-shrink-0" />}
+                        </div>
+                      );
+                    })}
                   </div>
+
+                  {q.explanation && (
+                    <p className="text-xs italic mt-2" style={{ color: "var(--text-tertiary)" }}>
+                      💡 {q.explanation}
+                    </p>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
-{/* EXCEL UPLOAD MODAL */}
+
+      {/* EXCEL UPLOAD MODAL */}
       {showExcelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.6)" }}>
           <div className="w-full max-w-3xl rounded-2xl p-6 shadow-xl my-8" style={{ background: "var(--surface)" }}>
@@ -450,12 +532,20 @@ function resetForm() {
                     {SUBJECTS.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
-                <div>  
+                <div>
+                  <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Daraja</label>
+                  <select className="input" value={form.difficulty} onChange={e => setForm({ ...form, difficulty: e.target.value })}>
+                    <option value="easy">Oson</option>
+                    <option value="medium">O'rta</option>
+                    <option value="hard">Qiyin</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
                     Dars <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(ixtiyoriy)</span>
                   </label>
-                  <select className="input" value={form.lesson_id} onChange={e => setForm({ ...form, lesson_id: e.target.value })}>
-                    <option value="">— Umumiy (fan bo'yicha) —</option>
+                  <select className="input" value={form.lesson_id} onChange={e => setForm({ ...form, lesson_id: e.target.value, module_id: e.target.value ? "" : form.module_id })}>
+                    <option value="">— Yo'q —</option>
                     {lessons.map(l => (
                       <option key={l.id} value={l.id}>
                         {l.course_title} / {l.module_title} / {l.title}
@@ -465,9 +555,9 @@ function resetForm() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
-                    Modul yakuniy imtihoni uchun <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(ixtiyoriy)</span>
+                    Modul yakuniy imtihoni <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(ixtiyoriy)</span>
                   </label>
-                  <select className="input" value={form.module_id} onChange={e => setForm({ ...form, module_id: e.target.value })}>
+                  <select className="input" value={form.module_id} onChange={e => setForm({ ...form, module_id: e.target.value, lesson_id: e.target.value ? "" : form.lesson_id })}>
                     <option value="">— Yo'q —</option>
                     {modules.map(m => (
                       <option key={m.id} value={m.id}>
@@ -476,15 +566,10 @@ function resetForm() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Daraja</label>
-                  <select className="input" value={form.difficulty} onChange={e => setForm({ ...form, difficulty: e.target.value })}>
-                    <option value="easy">Oson</option>
-                    <option value="medium">O'rta</option>
-                    <option value="hard">Qiyin</option>
-                  </select>
-                </div>
               </div>
+              <p className="text-xs -mt-2" style={{ color: "var(--text-tertiary)" }}>
+                Na dars, na modul tanlansa — savol "umumiy" hisoblanadi va faqat simulyatorda shu fan bo'yicha chiqadi.
+              </p>
               <div>
                 <label className="block text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
                   Variantlar

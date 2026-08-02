@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Key, Plus, Copy, RefreshCw, Trash2, CheckCircle,
-  Clock, XCircle, Loader2, X, Search
+  Clock, XCircle, Loader2, X, Search, Smartphone, User, CalendarClock, StickyNote, Pencil
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
@@ -41,6 +41,12 @@ export default function AdminKeysPage() {
     expires_at: "",
     count: 1,
   });
+
+  // Tahrirlash uchun alohida holat
+  const [editingKey, setEditingKey] = useState<AccessKey | null>(null);
+  const [editForm, setEditForm] = useState({ note: "", max_devices: 1, expires_at: "", is_active: true });
+  const [editSaving, setEditSaving] = useState(false);
+
   const supabase = createClient();
 
   const fetchKeys = useCallback(async () => {
@@ -92,6 +98,37 @@ export default function AdminKeysPage() {
       toast.error(e.message ?? "Xatolik");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function startEdit(k: AccessKey) {
+    setEditingKey(k);
+    setEditForm({
+      note: k.note ?? "",
+      max_devices: k.max_devices,
+      expires_at: k.expires_at ? k.expires_at.split("T")[0] : "",
+      is_active: k.is_active,
+    });
+  }
+
+  async function saveEdit() {
+    if (!editingKey) return;
+    setEditSaving(true);
+    try {
+      const { error } = await supabase.from("access_keys").update({
+        note: editForm.note || null,
+        max_devices: editForm.max_devices,
+        expires_at: editForm.expires_at ? new Date(editForm.expires_at).toISOString() : null,
+        is_active: editForm.is_active,
+      }).eq("id", editingKey.id);
+      if (error) throw error;
+      toast.success("Kalit yangilandi!");
+      setEditingKey(null);
+      fetchKeys();
+    } catch (e: any) {
+      toast.error(e.message ?? "Xatolik");
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -190,65 +227,81 @@ export default function AdminKeysPage() {
               const isExpired = k.expires_at && new Date(k.expires_at) < new Date();
               const status = isExpired ? "expired" : !k.is_active ? "used" : "active";
               return (
-                <div key={k.id} className="p-4 flex items-center gap-4 hover:bg-[var(--bg-secondary)] transition-colors">
-                  {/* Status icon */}
-                  <div className="flex-shrink-0">
-                    {status === "active" && <CheckCircle size={20} className="text-green-500" />}
-                    {status === "used" && <XCircle size={20} className="text-red-400" />}
-                    {status === "expired" && <Clock size={20} style={{ color: "var(--text-tertiary)" }} />}
+                <div key={k.id} className="p-4 hover:bg-[var(--bg-secondary)] transition-colors">
+                  {/* Top meta row — holat va yaratilgan sana birinchi ko'rinadi */}
+                  <div className="flex items-start justify-between gap-3 mb-2.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`badge text-xs flex items-center gap-1 ${
+                        status === "active" ? "badge-green" : status === "used" ? "badge-red" : "badge-yellow"
+                      }`}>
+                        {status === "active" ? <CheckCircle size={11} /> : status === "used" ? <XCircle size={11} /> : <Clock size={11} />}
+                        {status === "active" ? "Faol" : status === "used" ? "Ishlatilgan" : "Muddati o'tgan"}
+                      </span>
+                      <span className="text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1"
+                        style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                        <Smartphone size={11} /> Max {k.max_devices} qurilma
+                      </span>
+                      {k.expires_at && (
+                        <span className="text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1"
+                          style={isExpired
+                            ? { background: "rgba(239,68,68,0.1)", color: "#ef4444" }
+                            : { background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}>
+                          <CalendarClock size={11} /> {new Date(k.expires_at).toLocaleDateString("uz-UZ")}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs flex-shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                      {new Date(k.created_at).toLocaleDateString("uz-UZ")}
+                    </span>
                   </div>
 
-                  {/* Key */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <code className="font-mono font-bold text-base tracking-wider"
-                        style={{ color: status === "active" ? "#a855f7" : "var(--text-tertiary)" }}>
-                        {k.key}
-                      </code>
-                      <button onClick={() => copyKey(k.key)}
-                        className="w-6 h-6 rounded flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors"
-                        style={{ color: "var(--text-tertiary)" }}>
-                        <Copy size={12} />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs flex-wrap" style={{ color: "var(--text-tertiary)" }}>
-                      {k.note && <span>📝 {k.note}</span>}
-                      <span>📱 Max {k.max_devices} qurilma</span>
-                      {k.expires_at && (
-                        <span className={isExpired ? "text-red-400" : ""}>
-                          ⏰ {new Date(k.expires_at).toLocaleDateString("uz-UZ")}
+                  {/* Kalit kodi — eng ko'zga tashlanadigan qism */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <code className="font-mono font-bold text-lg tracking-wider"
+                      style={{ color: status === "active" ? "#a855f7" : "var(--text-tertiary)" }}>
+                      {k.key}
+                    </code>
+                    <button onClick={() => copyKey(k.key)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-colors flex-shrink-0"
+                      style={{ color: "var(--text-tertiary)" }}>
+                      <Copy size={13} />
+                    </button>
+                  </div>
+
+                  {/* Kim uchun / izoh — pastda, ikkinchi darajali ma'lumot */}
+                  {(k.note || k.used_by_profile) && (
+                    <div className="flex flex-wrap items-center gap-3 text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                      {k.note && (
+                        <span className="flex items-center gap-1.5">
+                          <StickyNote size={12} style={{ color: "var(--text-tertiary)" }} /> {k.note}
                         </span>
                       )}
                       {k.used_by_profile && (
-                        <span className="text-blue-500">
-                          👤 {(k.used_by_profile as any)?.full_name ?? "Foydalanuvchi"}
+                        <span className="flex items-center gap-1.5 font-medium" style={{ color: "#3b82f6" }}>
+                          <User size={12} /> {(k.used_by_profile as any)?.full_name ?? "Foydalanuvchi"}
                         </span>
                       )}
-                      <span>{new Date(k.created_at).toLocaleDateString("uz-UZ")}</span>
                     </div>
-                  </div>
-
-                  {/* Status badge */}
-                  <span className={`badge flex-shrink-0 ${
-                    status === "active" ? "badge-green" :
-                    status === "used" ? "badge-red" : "badge-yellow"
-                  }`}>
-                    {status === "active" ? "Faol" : status === "used" ? "Ishlatilgan" : "Muddati o'tgan"}
-                  </span>
+                  )}
 
                   {/* Actions */}
-                  <div className="flex gap-1 flex-shrink-0">
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => startEdit(k)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[var(--bg-tertiary)] transition-colors"
+                      style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                      <Pencil size={13} /> Tahrirlash
+                    </button>
                     {status === "active" && (
                       <button onClick={() => deactivateKey(k.id)}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors text-red-400"
-                        title="O'chirish">
-                        <XCircle size={15} />
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors text-red-500"
+                        style={{ border: "1px solid rgba(239,68,68,0.25)" }}>
+                        <XCircle size={13} /> O'chirish
                       </button>
                     )}
                     <button onClick={() => deleteKey(k.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors text-red-500"
-                      title="Butunlay o'chirish">
-                      <Trash2 size={15} />
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors text-red-600"
+                      style={{ border: "1px solid rgba(239,68,68,0.25)" }}>
+                      <Trash2 size={13} /> Butunlay o'chirish
                     </button>
                   </div>
                 </div>
@@ -258,7 +311,7 @@ export default function AdminKeysPage() {
         )}
       </div>
 
-      {/* FORM MODAL */}
+      {/* CREATE FORM MODAL */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
           <div className="w-full max-w-md rounded-2xl p-6 shadow-xl" style={{ background: "var(--surface)" }}>
@@ -337,6 +390,81 @@ export default function AdminKeysPage() {
                 {form.count > 1 ? `${form.count} ta kalit yaratish` : "Kalit yaratish"}
               </button>
               <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">Bekor</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {editingKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="w-full max-w-md rounded-2xl p-6 shadow-xl" style={{ background: "var(--surface)" }}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Kalitni tahrirlash</h2>
+              <button onClick={() => setEditingKey(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--bg-secondary)]"
+                style={{ color: "var(--text-secondary)" }}><X size={18} /></button>
+            </div>
+
+            <div className="mb-4 p-3 rounded-xl text-center" style={{ background: "var(--bg-secondary)" }}>
+              <code className="font-mono font-bold text-lg tracking-wider" style={{ color: "#a855f7" }}>
+                {editingKey.key}
+              </code>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                  Max qurilmalar
+                </label>
+                <select className="input" value={editForm.max_devices}
+                  onChange={e => setEditForm({ ...editForm, max_devices: Number(e.target.value) })}>
+                  <option value={1}>1 qurilma</option>
+                  <option value={2}>2 qurilma</option>
+                  <option value={3}>3 qurilma</option>
+                  <option value={5}>5 qurilma</option>
+                  <option value={10}>10 qurilma</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                  Amal qilish muddati
+                </label>
+                <input type="date" className="input" value={editForm.expires_at}
+                  onChange={e => setEditForm({ ...editForm, expires_at: e.target.value })} />
+                <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>Bo'sh qoldirsangiz — muddatsiz bo'ladi</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                  Izoh
+                </label>
+                <input className="input" value={editForm.note}
+                  onChange={e => setEditForm({ ...editForm, note: e.target.value })}
+                  placeholder="Kim uchun, qaysi guruh..." />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "var(--bg-secondary)" }}>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Faol holat</p>
+                  <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>O'chirilgan kalit login uchun ishlamaydi</p>
+                </div>
+                <button type="button" onClick={() => setEditForm(f => ({ ...f, is_active: !f.is_active }))}
+                  className="w-12 h-7 rounded-full relative transition-all flex-shrink-0"
+                  style={{ background: editForm.is_active ? "#10b981" : "var(--bg-tertiary)" }}>
+                  <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all"
+                    style={{ left: editForm.is_active ? "26px" : "4px" }} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={saveEdit} disabled={editSaving} className="btn-primary flex-1">
+                {editSaving && <Loader2 size={16} className="animate-spin" />}
+                Saqlash
+              </button>
+              <button onClick={() => setEditingKey(null)} className="btn-secondary flex-1">Bekor</button>
             </div>
           </div>
         </div>

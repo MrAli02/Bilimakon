@@ -2,13 +2,14 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BookOpen, ClipboardList, ChevronRight, Play } from "lucide-react";
+import TelegramJoinCard from "@/components/TelegramJoinCard";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
+  const { data: profile } = await supabase.from("profiles").select("full_name, email, access_key_id").eq("id", user.id).single();
 
   const [{ data: enrollments }, { data: progress }, { data: attempts }] = await Promise.all([
     supabase.from("enrollments").select("course_id, progress_percentage, courses(title)").eq("user_id", user.id).limit(3),
@@ -35,6 +36,9 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Telegram guruhga qo'shilish — faqat kirish kaliti orqali ro'yxatdan o'tgan (to'lov qilgan) foydalanuvchilarga ko'rinadi */}
+      {profile?.access_key_id && <TelegramJoinCard />}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
