@@ -20,14 +20,14 @@ export default async function LessonPage({
 
   if (!lesson) notFound();
 
-  const [{ data: questions }, { data: progress }, { data: profile }, { data: nextLesson }] = await Promise.all([
+  const [{ data: questions }, { data: progress }, { data: profile }, { data: nextLesson }, { data: materials }] = await Promise.all([
     supabase.from("questions").select("*").or(`lesson_id.eq.${lessonId},and(lesson_id.is.null,module_id.eq.${lesson.module_id})`),
     supabase.from("lesson_progress").select("*").eq("user_id", user.id).eq("lesson_id", lessonId).single(),
     supabase.from("profiles").select("full_name, id").eq("id", user.id).single(),
     supabase.from("lessons").select("id, title").eq("module_id", lesson.module_id)
       .gt("order_index", lesson.order_index).order("order_index").limit(1).single(),
+    supabase.from("materials").select("*").eq("lesson_id", lessonId).eq("is_published", true).order("order_index"),
   ]);
-
   return (
     <LessonClient
       lesson={lesson}
@@ -37,6 +37,7 @@ export default async function LessonPage({
       courseId={courseId}
       nextLesson={nextLesson}
       userId={user.id}
+      materials={materials ?? []}
     />
   );
 }

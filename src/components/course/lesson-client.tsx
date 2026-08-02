@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Loader2, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Loader2, Play, FileText, Link as LinkIcon, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import RestrictedPlayer from "./restricted-player";
 import { shuffleArray } from "@/lib/utils";
@@ -29,6 +29,13 @@ interface NextLessonInfo {
   title: string;
 }
 
+interface MaterialInfo {
+  id: string;
+  title: string;
+  type: "pdf" | "link" | "file";
+  url: string;
+}
+
 interface Props {
   lesson: LessonInfo;
   questions: Question[];
@@ -37,11 +44,12 @@ interface Props {
   courseId: string;
   nextLesson: NextLessonInfo | null;
   userId: string;
+  materials?: MaterialInfo[];
 }
 
 type Phase = "video" | "quiz" | "result";
 
-export default function LessonClient({ lesson, questions, initialProgress, profile, courseId, nextLesson, userId }: Props) {
+export default function LessonClient({ lesson, questions, initialProgress, profile, courseId, nextLesson, userId, materials = [] }: Props) {
   const [phase, setPhase] = useState<Phase>(initialProgress?.quiz_passed ? "result" : "video");
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [currentQ, setCurrentQ] = useState(0);
@@ -56,8 +64,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSecondsRef = useRef(initialProgress?.watched_seconds ?? 0);
   const pendingSecondsRef = useRef<number | null>(null);
-  // Joriy darsni kuzatib boradi — Next.js komponentni qayta mount qilmasdan
-  // faqat propslarni yangilashi mumkin, shuning uchun "avvalgi dars"ni bilish kerak.
   const prevLessonIdRef = useRef(lesson.id);
 
   const persistWatchedSeconds = useCallback(async (lessonId: string, toSave: number) => {
@@ -93,21 +99,8 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     }, 5000);
   }, [persistWatchedSeconds, lesson.id]);
 
-  // ==================================================================
-  // MUHIM TUZATISH: dars (lesson.id) o'zgarganda — masalan "Keyingi dars"
-  // tugmasi bosilganda — Next.js bu komponentni qayta mount qilmasligi
-  // mumkin, faqat proplarni yangilaydi. Shu sababli useState orqali
-  // o'rnatilgan boshlang'ich qiymatlar (phase, videoWatchedFraction,
-  // initialWatchedSeconds va h.k.) ESKI darsnikicha qolib ketardi.
-  // Aynan shu xato tufayli: (1) yangi darsga o'tilganda video umuman
-  // ko'rinmay qolardi (phase eski "result" holatida qolgani uchun),
-  // (2) progress/quiz hisob-kitobi noto'g'ri bo'lardi.
-  // Bu yerda darsni "qo'lda" to'liq qayta initsializatsiya qilamiz.
-  // ==================================================================
   useEffect(() => {
     if (prevLessonIdRef.current !== lesson.id) {
-      // Eski darsdan hali serverga yozilmagan progress bo'lsa — yo'qotib
-      // qo'ymaslik uchun uni almashtirishdan oldin saqlab qolamiz.
       if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
         persistWatchedSeconds(prevLessonIdRef.current, pendingSecondsRef.current);
       }
@@ -134,11 +127,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson.id]);
 
-  // ESLATMA: video uzluksiz ko'rilayotganda handleVideoProgress har ~400ms'da
-  // chaqiriladi va yuqoridagi 5s debounce'ni doim qayta boshidan ishga tushiradi —
-  // shuning uchun debounce o'zi hech qachon ishga tushmay qoladi. Aynan shu sabab
-  // bu alohida "majburiy saqlash" intervali kerak — u video pauza qilinmasa ham
-  // progress vaqti-vaqti bilan bazaga yozilishini kafolatlaydi.
   useEffect(() => {
     const interval = setInterval(() => {
       if (pendingSecondsRef.current != null && pendingSecondsRef.current > lastSavedSecondsRef.current) {
@@ -215,9 +203,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
     return () => { cancelled = true; };
   }, [supabase, userId, lesson.id, initialProgress?.watched_seconds]);
 
-  // Foydalanuvchi allaqachon tugatgan darsni qayta ko'rishni xohlasa —
-  // video fazasiga qaytaramiz. Dars avval tugallangan bo'lgani uchun
-  // "80% ko'rish" cheklovini qayta talab qilmaymiz — tugma darhol ochiq turadi.
   function rewatchVideo() {
     if (initialProgress?.quiz_passed) setVideoWatchedFraction(1);
     setPhase("video");
@@ -273,7 +258,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
 
       if (passed) {
         toast.success("Dars muvaffaqiyatli bajarildi! 🎉");
-        // Update enrollment progress
         await fetch("/api/progress", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -291,7 +275,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
 
   return (
     <div className="max-w-3xl mx-auto animate-fade-in">
-      {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm mb-5" style={{ color: "var(--text-tertiary)" }}>
         <Link href={`/courses/${courseId}`} className="flex items-center gap-1 hover:text-purple-600 transition-colors">
           <ChevronLeft size={15} /> Kursga qaytish
@@ -300,7 +283,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         <span className="truncate max-w-xs" style={{ color: "var(--text-primary)" }}>{lesson.title}</span>
       </div>
 
-      {/* VIDEO */}
       {phase === "video" && (
         <div>
           <h1 className="text-xl font-bold mb-5" style={{ color: "var(--text-primary)" }}>{lesson.title}</h1>
@@ -339,7 +321,33 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
               <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{lesson.description}</p>
             </div>
           )}
-          {/* KOD MASHQI - faqat shu dars uchun yoqilgan bo'lsa chiqadi */}
+
+          {materials.length > 0 && (
+            <div className="card p-5 mb-5">
+              <h2 className="font-bold mb-3" style={{ color: "var(--text-primary)" }}>📎 Materiallar</h2>
+              <div className="space-y-2">
+                {materials.map((mat) => (
+<a                  
+                    key={mat.id}
+                    href={mat.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-[var(--bg-secondary)]"
+                    style={{ border: "1px solid var(--border)" }}
+                  >
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: mat.type === "pdf" ? "rgba(239,68,68,0.08)" : mat.type === "link" ? "rgba(59,130,246,0.08)" : "var(--bg-tertiary)" }}>
+                      {mat.type === "pdf" ? <FileText size={16} className="text-red-500" /> :
+                        mat.type === "link" ? <LinkIcon size={16} className="text-blue-500" /> :
+                        <Download size={16} style={{ color: "var(--text-secondary)" }} />}
+                    </div>
+                    <span className="text-sm font-medium flex-1" style={{ color: "var(--text-primary)" }}>{mat.title}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           {lesson.has_code_exercise && (
             <div className="mb-5">
               <h2 className="font-bold mb-3 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
@@ -375,7 +383,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         </div>
       )}
 
-      {/* QUIZ */}
       {phase === "quiz" && q && (
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -420,7 +427,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
                 );
               })}
             </div>
-            {/* Static explanation — no AI */}
             {revealed && answers[q.id] !== q.correct_option_id && q.explanation && (
               <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
                 <p className="text-sm font-semibold text-yellow-600 mb-1">💡 Tushuntirish</p>
@@ -448,7 +454,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
         </div>
       )}
 
-      {/* RESULT */}
       {phase === "result" && (
         <div className="text-center py-6">
           <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-5 ${quizPassed ? "bg-green-100 dark:bg-green-900" : "bg-red-100 dark:bg-red-900"}`}>
@@ -466,7 +471,6 @@ export default function LessonClient({ lesson, questions, initialProgress, profi
             {quizPassed ? "Keyingi darsga o'tishingiz mumkin." : "O'tish bali: 60%. Qayta urinib ko'ring."}
           </p>
 
-          {/* Incorrect answers breakdown */}
           {quizQuestions.length > 0 && quizQuestions.some(q => answers[q.id] !== q.correct_option_id) && (
             <div className="card p-5 text-left mb-6 max-h-64 overflow-y-auto">
               <p className="font-bold text-sm mb-3" style={{ color: "var(--text-primary)" }}>Noto'g'ri javoblar:</p>
